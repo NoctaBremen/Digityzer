@@ -1,5 +1,8 @@
 # Release de Digityzer: al crear una etiqueta v* (v0.1, v0.2…), construye el AppImage
 # y lo publica como GitHub Release (copiado del de Spector).
+# También se puede lanzar a mano (Actions → Release → Run workflow): sin «publicar» solo deja el
+# AppImage como artefacto; con «publicar», crea la etiqueta `version` sobre este commit y publica
+# la release.
 name: Release
 
 on:
@@ -8,9 +11,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versión para el nombre del AppImage (prueba manual, no publica)"
+        description: "Versión (etiqueta), p. ej. v1.0.0"
         required: false
         default: "v0.0-manual"
+      publish:
+        description: "Crear la etiqueta y publicar la release"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -71,12 +79,14 @@ jobs:
           if-no-files-found: error
 
       - name: Publicar release
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           name: Digityzer ${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body_path: CHANGELOG.md
           files: |
             dist/*.AppImage
             dist/*.AppImage.sha256
-          generate_release_notes: true
           fail_on_unmatched_files: true
