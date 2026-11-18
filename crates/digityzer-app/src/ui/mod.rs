@@ -1,5 +1,6 @@
 //! Interfaz GTK4 de Digityzer.
 
+pub mod about;
 pub mod config;
 pub mod draw;
 pub mod logic;

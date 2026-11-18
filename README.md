@@ -1,74 +1,104 @@
-# Digityzer
+<p align="center">
+  <img src="docs/img/icono.png" width="112" alt="Icono de Digityzer">
+</p>
 
-Digitalizador de vinilo en Rust + GTK4: captura bit-perfect desde la Xone:96 por ALSA, mide la
-calidad de la captura y de la cadena mecánica y exporta las pistas a AIFF. El master crudo nunca
-se modifica.
+<h1 align="center">Digityzer</h1>
 
-Entorno: Arch Linux, Hyprland (Wayland), kernel PREEMPT_RT, solo ALSA (sin PipeWire, PulseAudio
-ni JACK).
+<p align="center">
+  Digitalizador de vinilo <b>bit-perfect</b> para Linux, en Rust + GTK4.<br>
+  Graba desde la Allen &amp; Heath Xone:96 por ALSA, mide la captura mientras suena y guarda un
+  master que nunca se modifica.
+</p>
 
-## Workspace
+<p align="center">
+  <b>Director del proyecto:</b> David Gimenez · <b>Programación:</b> Claude (Anthropic)
+</p>
 
-| Crate | Responsabilidad |
+![Digityzer grabando una cara](docs/img/ventana-grabando.png)
+
+## Qué hace
+
+- **Graba sin tocar la señal**: dispositivo `hw:` en exclusiva, formato nativo de la tarjeta y
+  frecuencia exacta. Sin `plughw`, sin remuestreo, sin PipeWire, PulseAudio ni JACK.
+- **Nunca pierde ni sobrescribe**: el hilo de captura tiene prioridad de tiempo real y no se
+  bloquea; los cortes de ALSA (xruns) se anotan con su instante; el master y su ficha quedan en
+  solo lectura.
+- **Mide mientras graba**: medidores de pico y RMS con aviso de clipping, espectro en curva suave
+  (con nota musical bajo el cursor), barras o cascada, goniómetro con correlación de fase y forma
+  de onda.
+- **Comprueba**: cada master lleva una huella blake3 por bloques; `verify` dice si ha cambiado un
+  solo bit.
+- **Se adapta a tu escritorio**: diez temas de color (Dracula, Catppuccin, Gruvbox, Nord, Tokyo
+  Night, Rosé Pine, Everforest, Kanagawa, Monokai Pro y Ayu) que cambian en caliente.
+
+## Descargar y usar
+
+Descarga el AppImage de [Releases](https://github.com/NoctaBremen/Digityzer/releases):
+
+```bash
+chmod +x Digityzer-v1.0.0-x86_64.AppImage
+./Digityzer-v1.0.0-x86_64.AppImage                 # interfaz
+./Digityzer-v1.0.0-x86_64.AppImage cli probe       # tarjetas y formatos
+```
+
+Arma, graba y para: el **[manual de uso](docs/MANUAL.md)** lo explica todo paso a paso,
+incluida la cadena de señal de la Xone:96, los archivos que se generan y la solución de
+problemas.
+
+Para que el hilo de captura tenga prioridad de tiempo real en Arch:
+
+```bash
+sudo pacman -S realtime-privileges && sudo usermod -aG realtime "$USER"
+```
+
+## Documentación
+
+| Documento | Para qué |
 |---|---|
-| `crates/digityzer-audio` | Captura ALSA bit-perfect y escritura del master (fase 1) |
-| `crates/digityzer-dsp` | Medidores, calibración y diagnóstico de la cadena (fases 2 y 3) |
-| `crates/digityzer-project` | Proyecto no destructivo, marcadores y JSON del master |
-| `crates/digityzer-app` | Binarios `digityzer` (GUI GTK4) y `digityzer-cli` |
-| `crates/audio-core` | Código compartido con Spector (espectrograma, cortes y falsos hi-res, AIFF con etiquetas, widgets GTK4). Ver `PROVENANCE.md` |
-| `crates/digityzer-testkit` | Señales sintéticas deterministas para los tests (solo dev): senos, ruido, tonos modulados, clics, zumbido, diafonía |
+| [Manual de uso](docs/MANUAL.md) | Instalar, grabar, leer las gráficas, archivos, CLI y problemas |
+| [Arquitectura](docs/ARQUITECTURA.md) | Hilos, crates, formatos y decisiones técnicas |
+| [Pruebas con la mesa](docs/PRUEBAS_HARDWARE.md) | Comprobaciones que necesitan la Xone:96 |
+| [Cambios](CHANGELOG.md) | Qué trae cada versión |
+| [CLAUDE.md](CLAUDE.md) | Convenciones para contribuir |
 
-## Comandos
+## Compilar
+
+```bash
+sudo pacman -S --needed rust gtk4 alsa-lib pkgconf      # Ubuntu: libgtk-4-dev libasound2-dev
+cargo build --release
+./target/release/digityzer
+```
+
+Comprobaciones (las mismas que el CI):
 
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo run --bin digityzer          # interfaz
-cargo run --bin digityzer-cli      # línea de órdenes
 ```
 
-### Grabar con la interfaz
+AppImage: `packaging/appimage/build-appimage.sh` → `dist/`. Al crear una etiqueta `v*`, el
+workflow de release lo construye y lo publica.
 
-`digityzer` abre la ventana principal: dispositivo, par de canales y frecuencia; carpeta, nombre
-del disco, cara y notas. **Armar** abre la tarjeta y muestra medidores de pico y RMS con
-retención y aviso de clipping, espectro en vivo (curva suave con capas instantánea, media y
-picos, suavizado por fracción de octava y cursor con nota; barras; o cascada), goniómetro con correlación de fase y la forma de
-onda, sin grabar. **Grabar** y **Parar** crean `<disco> - Cara A.wav` con su JSON sin soltar la
-tarjeta, y la ventana pasa a la cara B. El «Origen sintético» permite probarla sin la mesa.
-Diez temas de color (Dracula por defecto) que cambian en caliente; la elección, la vista y el
-suavizado se guardan en `~/.config/digityzer/config.toml`. `digityzer render-themes <carpeta>`
-genera un PNG por tema con todas las gráficas.
+## Estructura
 
-### Grabar desde la terminal
+| Crate | Responsabilidad |
+|---|---|
+| `crates/audio-core` | Código compartido con Spector y temas de color |
+| `crates/digityzer-audio` | Captura ALSA, escritor del master, sesión y verificación |
+| `crates/digityzer-dsp` | Medidores, espectro, correlación, goniómetro y forma de onda |
+| `crates/digityzer-project` | Ficha JSON del master |
+| `crates/digityzer-app` | Binarios `digityzer` (GTK4) y `digityzer-cli` |
+| `crates/digityzer-testkit` | Señales sintéticas para los tests |
 
-```bash
-digityzer-cli probe                                   # tarjetas y dispositivos hw:
-digityzer-cli record --device hw:CARD=<id>,DEV=0 --pair 3-4 --notes "…" cara-a.wav
-digityzer-cli verify cara-a.wav                       # audio = huella del JSON
-digityzer-cli record --simulate --pair 3-4 --duration 5 prueba.wav   # sin la mesa
-```
+## Créditos
 
-`record` escribe el par elegido tal cual llega (formato nativo, 96 kHz por defecto) en un WAV, o
-RF64 por encima de 4 GiB, y al lado `cara-a.wav.json` con dispositivo, formato, xruns, huella y
-notas. Los dos quedan en solo lectura. Ctrl-C para sin perder datos. Las pruebas que necesitan
-la mesa están en `docs/PRUEBAS_HARDWARE.md`.
+- **Dirección del proyecto:** David Gimenez
+- **Programación:** Claude (Anthropic)
+- Código compartido con Spector, el analizador espectral del mismo autor.
+- Construido con GTK 4, alsa-lib, RustFFT, rtrb, triple_buffer, blake3 y lofty, entre otros.
+- Paletas de color de sus temas respectivos.
 
-Registro con `DIGITYZER_LOG` (p. ej. `DIGITYZER_LOG=debug`).
+## Licencia
 
-El CI (`.github/workflows/ci.yml`) ejecuta lo mismo con `--locked` en cada PR y en cada push a
-`main`, más una comprobación con Rust 1.92 (MSRV). Un PR con el CI en rojo no se fusiona: para que
-GitHub lo impida, activa en Settings → Branches la protección de `main` exigiendo los checks
-`fmt · clippy · test` y `MSRV (1.92)`.
-
-### AppImage
-
-```bash
-packaging/appimage/build-appimage.sh          # → dist/Digityzer-v<versión>-x86_64.AppImage
-./Digityzer-v0.1.0-x86_64.AppImage            # interfaz
-./Digityzer-v0.1.0-x86_64.AppImage cli probe  # digityzer-cli (probe, record, verify)
-```
-
-Al crear una etiqueta `v*`, `.github/workflows/release.yml` lo construye y lo publica.
-
-Para compilar hacen falta las cabeceras de GTK 4.14 y ALSA (`gtk4` y `alsa-lib` en Arch).
+[MIT](LICENSE) © 2026 David Gimenez.

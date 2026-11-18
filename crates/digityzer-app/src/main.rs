@@ -57,6 +57,7 @@ fn main() -> glib::ExitCode {
     match launch(&args) {
         Launch::Version => {
             println!("digityzer {}", env!("CARGO_PKG_VERSION"));
+            println!("{}", ui::about::credits_text());
             return glib::ExitCode::SUCCESS;
         }
         Launch::Cli(rest) => return run_cli(rest),

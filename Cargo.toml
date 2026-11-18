@@ -10,12 +10,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
 repository = "https://github.com/NoctaBremen/Digityzer"
-authors = ["Digityzer contributors"]
+authors = ["David Gimenez (director del proyecto)", "Claude, de Anthropic (programación)"]
 
 # Las crates miembro usan las dependencias con `nombre = { workspace = true }`.
 # Las versiones de las crates compartidas con Spector son las suyas (commit en PROVENANCE.md).

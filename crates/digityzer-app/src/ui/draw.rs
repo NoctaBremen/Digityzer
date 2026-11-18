@@ -96,10 +96,12 @@ pub fn meters(cr: &Context, th: &Theme, w: f64, h: f64, snap: &LiveSnapshot, cli
             rms * bar_h,
         );
         let _ = cr.fill();
-        let hold = meter_fraction(level.peak_hold_dbfs);
-        set(cr, zone_color(th, zone(level.peak_hold_dbfs)), 1.0);
-        cr.rectangle(x, bottom - hold * bar_h - 1.0, bar_w, 2.0);
-        let _ = cr.fill();
+        if level.peak_hold_dbfs > METER_DB_MIN {
+            let hold = meter_fraction(level.peak_hold_dbfs);
+            set(cr, zone_color(th, zone(level.peak_hold_dbfs)), 1.0);
+            cr.rectangle(x, bottom - hold * bar_h - 1.0, bar_w, 2.0);
+            let _ = cr.fill();
+        }
         if clipped[c] {
             set(cr, th.clip, 1.0);
             cr.rectangle(x, 2.0, bar_w, 16.0);

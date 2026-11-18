@@ -35,6 +35,9 @@ const SYNTH_CHANNELS: u16 = 12;
 pub const CSS: &str = "
 .rec-time { font-size: 30px; font-weight: bold; font-feature-settings: \"tnum\"; }
 .meter-frame { border-radius: 6px; }
+.about-title { font-size: 22px; font-weight: bold; }
+.about-name { font-weight: bold; }
+.about-small { font-size: 11px; }
 ";
 
 /// CSS completo para un tema: colores del tema + forma de la ventana.
@@ -162,9 +165,31 @@ pub fn build(app: &gtk::Application) {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("Digityzer")
+        .icon_name("digityzer")
         .default_width(1100)
-        .default_height(720)
+        .default_height(760)
         .build();
+    // Barra de título propia: «Acerca de» y cerrar, siempre visibles (en Hyprland no hay
+    // decoraciones del gestor de ventanas).
+    let header = gtk::HeaderBar::builder().show_title_buttons(false).build();
+    let about_btn = gtk::Button::builder()
+        .icon_name("help-about-symbolic")
+        .tooltip_text("Acerca de Digityzer")
+        .build();
+    let close_btn = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text("Cerrar Digityzer (si se está grabando, el master se cierra bien)")
+        .css_classes(["close-button"])
+        .build();
+    header.pack_end(&close_btn);
+    header.pack_end(&about_btn);
+    window.set_titlebar(Some(&header));
+    {
+        let w = window.clone();
+        close_btn.connect_clicked(move |_| w.close());
+        let w = window.clone();
+        about_btn.connect_clicked(move |_| super::about::show(&w));
+    }
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| ".".into());

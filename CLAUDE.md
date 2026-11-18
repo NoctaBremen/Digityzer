@@ -1,7 +1,8 @@
 # CLAUDE.md — Convenciones de Digityzer
 
 El alcance de cada tarea está en el plan («Plan — Digityzer», tareas `T<fase>.<n>`). En estilo
-manda este archivo.
+manda este archivo. Uso en `docs/MANUAL.md`, diseño en `docs/ARQUITECTURA.md` y cambios en
+`CHANGELOG.md` (actualízalos si cambias algo visible).
 
 ## Qué es
 

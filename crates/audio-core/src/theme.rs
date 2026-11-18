@@ -324,6 +324,9 @@ impl Theme {
 @define-color warning_color {a};
 @define-color success_color {o};
 window, .background {{ background-color: {f}; color: {x}; }}
+headerbar {{ background-image: none; background-color: {f}; color: {x};
+  border-bottom: 1px solid {r}; box-shadow: none; }}
+headerbar button.close-button:hover {{ background-color: {k}; color: {g}; }}
 label {{ color: {x}; }}
 .dim-label, label.dim-label {{ color: {d}; opacity: 1; }}
 button, dropdown > button, menubutton > button {{
