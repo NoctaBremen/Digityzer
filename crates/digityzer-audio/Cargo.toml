@@ -13,9 +13,15 @@ publish = false
 audio-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+digityzer-project = { workspace = true }
+alsa = { workspace = true }
+rtrb = { workspace = true }
+thread-priority = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 digityzer-testkit = { workspace = true }
+hound = { workspace = true }
 
 [lints]
 workspace = true

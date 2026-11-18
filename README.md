@@ -28,6 +28,20 @@ cargo run --bin digityzer          # interfaz
 cargo run --bin digityzer-cli      # línea de órdenes
 ```
 
+### Grabar desde la terminal
+
+```bash
+digityzer-cli probe                                   # tarjetas y dispositivos hw:
+digityzer-cli record --device hw:CARD=<id>,DEV=0 --pair 3-4 --notes "…" cara-a.wav
+digityzer-cli verify cara-a.wav                       # audio = huella del JSON
+digityzer-cli record --simulate --pair 3-4 --duration 5 prueba.wav   # sin la mesa
+```
+
+`record` escribe el par elegido tal cual llega (formato nativo, 96 kHz por defecto) en un WAV, o
+RF64 por encima de 4 GiB, y al lado `cara-a.wav.json` con dispositivo, formato, xruns, huella y
+notas. Los dos quedan en solo lectura. Ctrl-C para sin perder datos. Las pruebas que necesitan
+la mesa están en `docs/PRUEBAS_HARDWARE.md`.
+
 Registro con `DIGITYZER_LOG` (p. ej. `DIGITYZER_LOG=debug`).
 
 El CI (`.github/workflows/ci.yml`) ejecuta lo mismo con `--locked` en cada PR y en cada push a
