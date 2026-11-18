@@ -88,3 +88,12 @@ ocupado».
 - Goniómetro: el disco mono (o un tono en los dos canales) es una línea vertical y la
   correlación marca +1.
 - Forma de onda: se desplaza hacia la izquierda; roja mientras se graba.
+
+## T2.6–T2.9 — espectro y temas
+
+- **Curva suave** (por defecto): con un disco sonando, sin bloques planos en graves; el cursor
+  da frecuencia, nota con cents y nivel. Cambia el suavizado (1/3, 1/6, 1/12 octava).
+- **Barras** y **Cascada**: cambia de vista durante una grabación; al acabar, «sin xruns».
+- **Tema**: cambia de tema grabando (todo se recolorea al momento, sin xruns); cierra y abre: se
+  mantiene. Se guarda en `~/.config/digityzer/config.toml`.
+- Capturas de referencia de los diez temas: `./Digityzer-…AppImage render-themes capturas/`.

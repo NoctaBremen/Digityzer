@@ -64,6 +64,11 @@ pub const BARS: usize = 160;
 pub const WATERFALL_COLUMNS: usize = 600;
 /// Filas de la cascada.
 pub const WATERFALL_ROWS: usize = 256;
+/// Rango de colores de la cascada (dBFS): por debajo, color de `gráfica`; por encima, el más
+/// claro del degradado.
+pub const WATERFALL_DB_MIN: f32 = -90.0;
+/// Tope del rango de colores de la cascada (dBFS).
+pub const WATERFALL_DB_MAX: f32 = -10.0;
 /// Escala de dB del espectro.
 pub const DB_MIN: f32 = -130.0;
 /// Tope de la escala de dB del espectro.
@@ -230,6 +235,15 @@ impl SpectrumView {
     }
 }
 
+/// Posición (0–1) de un nivel en el degradado de la cascada, con respuesta cuadrática: el ruido
+/// y los niveles medios quedan oscuros y solo lo fuerte llega a los colores claros del tema.
+pub fn waterfall_frac(db: f32) -> f64 {
+    let x = f64::from(
+        ((db - WATERFALL_DB_MIN) / (WATERFALL_DB_MAX - WATERFALL_DB_MIN)).clamp(0.0, 1.0),
+    );
+    x * x
+}
+
 /// Fracción vertical (0 abajo, 1 arriba) de un nivel en la escala del espectro.
 pub fn db_frac(db: f32) -> f64 {
     f64::from(((db - DB_MIN) / (DB_MAX - DB_MIN)).clamp(0.0, 1.0))
@@ -248,6 +262,14 @@ mod tests {
         let mut snap = LiveSnapshot::default();
         a.snapshot_into(&mut snap);
         snap
+    }
+
+    #[test]
+    fn cascada_oscura_en_el_ruido() {
+        assert_eq!(waterfall_frac(-200.0), 0.0);
+        assert_eq!(waterfall_frac(0.0), 1.0);
+        assert!(waterfall_frac(-70.0) < 0.1);
+        assert!(waterfall_frac(-15.0) > 0.85);
     }
 
     #[test]

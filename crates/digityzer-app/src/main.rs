@@ -20,12 +20,18 @@ enum Launch {
     Version,
     /// Ejecutar `digityzer-cli` con el resto de argumentos.
     Cli(Vec<std::ffi::OsString>),
+    /// Capturas de referencia de todos los temas en una carpeta (T2.9f).
+    RenderThemes(std::path::PathBuf),
 }
 
 fn launch(args: &[std::ffi::OsString]) -> Launch {
     match args.get(1).and_then(|a| a.to_str()) {
         Some("--version" | "-V") => Launch::Version,
         Some("cli") => Launch::Cli(args[2..].to_vec()),
+        Some("render-themes") => Launch::RenderThemes(
+            args.get(2)
+                .map_or_else(|| "capturas-temas".into(), std::path::PathBuf::from),
+        ),
         _ => Launch::Gui,
     }
 }
@@ -54,6 +60,20 @@ fn main() -> glib::ExitCode {
             return glib::ExitCode::SUCCESS;
         }
         Launch::Cli(rest) => return run_cli(rest),
+        Launch::RenderThemes(dir) => {
+            return match ui::reference::render_all(&dir) {
+                Ok(files) => {
+                    for f in files {
+                        println!("{}", f.display());
+                    }
+                    glib::ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("No se pudieron generar las capturas: {e:#}");
+                    glib::ExitCode::FAILURE
+                }
+            };
+        }
         Launch::Gui => {}
     }
     tracing_subscriber::fmt()
@@ -84,6 +104,10 @@ mod tests {
         assert_eq!(
             launch(&a(&["digityzer", "cli", "probe"])),
             Launch::Cli(a(&["probe"]))
+        );
+        assert_eq!(
+            launch(&a(&["digityzer", "render-themes", "/tmp/x"])),
+            Launch::RenderThemes("/tmp/x".into())
         );
     }
 }

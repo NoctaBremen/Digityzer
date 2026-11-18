@@ -11,6 +11,7 @@ use gtk4::cairo::{self, Context};
 use super::logic::{METER_DB_MIN, Zone, db_text, log_x, meter_fraction, zone};
 use super::spectrum_view::{
     DB_MAX, DB_MIN, SpectrumMode, SpectrumView, WATERFALL_COLUMNS, WATERFALL_ROWS, db_frac,
+    waterfall_frac,
 };
 
 /// Margen izquierdo del espectro (escala de dB).
@@ -351,7 +352,7 @@ impl Waterfall {
                 let column = &view.waterfall[c * WATERFALL_ROWS..(c + 1) * WATERFALL_ROWS];
                 for (row, &db) in column.iter().enumerate() {
                     let y = WATERFALL_ROWS - 1 - row;
-                    let k = (db_frac(db) * 255.0).round() as usize;
+                    let k = (waterfall_frac(db) * 255.0).round() as usize;
                     let [r, g, b] = self.lut[k.min(255)];
                     let at = y * stride + c * 4;
                     data[at] = b;

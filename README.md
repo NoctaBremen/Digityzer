@@ -32,9 +32,13 @@ cargo run --bin digityzer-cli      # línea de órdenes
 
 `digityzer` abre la ventana principal: dispositivo, par de canales y frecuencia; carpeta, nombre
 del disco, cara y notas. **Armar** abre la tarjeta y muestra medidores de pico y RMS con
-retención y aviso de clipping, espectro en vivo, goniómetro con correlación de fase y la forma de
+retención y aviso de clipping, espectro en vivo (curva suave con capas instantánea, media y
+picos, suavizado por fracción de octava y cursor con nota; barras; o cascada), goniómetro con correlación de fase y la forma de
 onda, sin grabar. **Grabar** y **Parar** crean `<disco> - Cara A.wav` con su JSON sin soltar la
 tarjeta, y la ventana pasa a la cara B. El «Origen sintético» permite probarla sin la mesa.
+Diez temas de color (Dracula por defecto) que cambian en caliente; la elección, la vista y el
+suavizado se guardan en `~/.config/digityzer/config.toml`. `digityzer render-themes <carpeta>`
+genera un PNG por tema con todas las gráficas.
 
 ### Grabar desde la terminal
 
