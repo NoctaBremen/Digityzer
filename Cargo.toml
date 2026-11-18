@@ -2,6 +2,10 @@
 resolver = "3"
 members = [
     "crates/audio-core",
+    "crates/digityzer-audio",
+    "crates/digityzer-dsp",
+    "crates/digityzer-project",
+    "crates/digityzer-app",
     "crates/digityzer-testkit",
 ]
 
@@ -18,6 +22,9 @@ authors = ["Digityzer contributors"]
 [workspace.dependencies]
 # Internas
 audio-core = { path = "crates/audio-core" }
+digityzer-audio = { path = "crates/digityzer-audio" }
+digityzer-dsp = { path = "crates/digityzer-dsp" }
+digityzer-project = { path = "crates/digityzer-project" }
 digityzer-testkit = { path = "crates/digityzer-testkit" }
 
 # Audio y DSP
@@ -33,9 +40,12 @@ png = "0.18"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 
-# Errores y registro
+# Errores, registro y CLI
 thiserror = "2.0"
+anyhow = "1.0"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.6", features = ["derive"] }
 toml = "1.2"
 
 # Solo tests

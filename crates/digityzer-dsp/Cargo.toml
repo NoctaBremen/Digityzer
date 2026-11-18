@@ -1,0 +1,16 @@
+[package]
+name = "digityzer-dsp"
+description = "Medidores, calibración y diagnóstico de la cadena"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+audio-core = { workspace = true }
+
+[lints]
+workspace = true

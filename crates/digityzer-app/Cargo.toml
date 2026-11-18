@@ -1,0 +1,32 @@
+[package]
+name = "digityzer-app"
+description = "Binarios de Digityzer: interfaz GTK4 (`digityzer`) y línea de órdenes (`digityzer-cli`)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "digityzer"
+path = "src/main.rs"
+
+[[bin]]
+name = "digityzer-cli"
+path = "src/bin/digityzer-cli.rs"
+
+[dependencies]
+audio-core = { workspace = true, features = ["gtk"] }
+digityzer-audio = { workspace = true }
+digityzer-dsp = { workspace = true }
+digityzer-project = { workspace = true }
+gtk4 = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
