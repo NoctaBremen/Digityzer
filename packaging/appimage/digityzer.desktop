@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Digityzer
+GenericName=Digitalizador de vinilo
+Comment=Graba vinilo bit-perfect desde la Xone:96 y mide la captura
+Exec=digityzer
+Icon=digityzer
+Terminal=false
+Categories=AudioVideo;Audio;Recorder;
+Keywords=vinilo;vinyl;grabar;record;alsa;dj;
+StartupWMClass=io.github.noctabremen.Digityzer

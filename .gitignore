@@ -1,3 +1,7 @@
 /target
 **/*.rs.bk
 .digityzer-tmp-*
+/dist
+/packaging/appimage/tools
+*.AppImage
+*.AppImage.sha256

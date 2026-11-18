@@ -1,0 +1,82 @@
+# Release de Digityzer: al crear una etiqueta v* (v0.1, v0.2…), construye el AppImage
+# y lo publica como GitHub Release (copiado del de Spector).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión para el nombre del AppImage (prueba manual, no publica)"
+        required: false
+        default: "v0.0-manual"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libasound2-dev pkg-config librsvg2-dev file desktop-file-utils
+
+      - name: Toolchain de Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Versión
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construir AppImage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging/appimage/build-appimage.sh
+
+      - name: Prueba de humo (--version)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          APPIMAGE="dist/Digityzer-${{ steps.version.outputs.version }}-x86_64.AppImage"
+          chmod +x "$APPIMAGE"
+          "$APPIMAGE" --version | tee version.txt
+          grep -q '^digityzer ' version.txt
+          (cd dist && sha256sum --check ./*.sha256)
+
+      - name: Guardar artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digityzer-${{ steps.version.outputs.version }}-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publicar release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Digityzer ${{ steps.version.outputs.version }}
+          files: |
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

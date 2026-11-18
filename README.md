@@ -57,4 +57,14 @@ El CI (`.github/workflows/ci.yml`) ejecuta lo mismo con `--locked` en cada PR y 
 GitHub lo impida, activa en Settings → Branches la protección de `main` exigiendo los checks
 `fmt · clippy · test` y `MSRV (1.92)`.
 
+### AppImage
+
+```bash
+packaging/appimage/build-appimage.sh          # → dist/Digityzer-v<versión>-x86_64.AppImage
+./Digityzer-v0.1.0-x86_64.AppImage            # interfaz
+./Digityzer-v0.1.0-x86_64.AppImage cli probe  # digityzer-cli (probe, record, verify)
+```
+
+Al crear una etiqueta `v*`, `.github/workflows/release.yml` lo construye y lo publica.
+
 Para compilar hacen falta las cabeceras de GTK 4.14 y ALSA (`gtk4` y `alsa-lib` en Arch).
