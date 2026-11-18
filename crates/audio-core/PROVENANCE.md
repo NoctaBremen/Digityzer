@@ -45,3 +45,8 @@ Digityzer graba su propio master y no los necesita.
 
 El widget, la exportación a PNG y el estilo están detrás del feature `gtk` para que
 `digityzer-cli` y las bibliotecas no dependan de GTK.
+
+## Código propio
+
+`src/theme.rs` (temas de color, T2.9) no viene de Spector: es de Digityzer y está aquí para que
+Spector pueda adoptarlo más adelante en su propio proyecto.

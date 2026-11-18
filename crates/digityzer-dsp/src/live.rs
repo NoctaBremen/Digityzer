@@ -2,13 +2,11 @@
 //! por triple buffer (sin locks).
 
 use crate::meters::{ChannelLevel, LevelMeter, MeterConfig};
-use crate::spectrum::LiveSpectrum;
+use crate::spectrum::{LiveSpectrum, SpectrumLayers};
 use crate::stereo::{Correlation, Goniometer};
 use crate::waveform::Waveform;
 
-/// Bandas del espectro de la instantánea.
-pub const SPECTRUM_BANDS: usize = 192;
-/// Frecuencia mínima del espectro (Hz).
+/// Frecuencia mínima del espectro en pantalla (Hz).
 pub const SPECTRUM_F_MIN: f64 = 20.0;
 /// Puntos del goniómetro.
 pub const GONIO_POINTS: usize = 2048;
@@ -28,8 +26,8 @@ pub struct LiveSnapshot {
     pub correlation: Option<f32>,
     /// Goniómetro `(lado, medio)`.
     pub gonio: Vec<(f32, f32)>,
-    /// Espectro en dBFS por banda logarítmica de [`SPECTRUM_F_MIN`] a Nyquist.
-    pub spectrum: Vec<f32>,
+    /// Espectro: capas instantánea, media y de picos por bin (la vista elige cómo dibujarlas).
+    pub spectrum: SpectrumLayers,
     /// Forma de onda `(mín, máx)` por columna, la más reciente al final.
     pub waveform: Vec<(f32, f32)>,
     /// Frames analizados desde el principio.
@@ -63,7 +61,7 @@ impl LiveAnalyzer {
             ],
             corr: Correlation::new((0.3 * f64::from(rate)) as usize),
             gonio: Goniometer::new(GONIO_POINTS, (rate / 24_000).max(1) as usize),
-            spectrum: LiveSpectrum::new(rate, bits, 0.3),
+            spectrum: LiveSpectrum::new(rate, bits),
             waveform: Waveform::new(
                 (WAVEFORM_COLUMN_S * f64::from(rate)) as usize,
                 WAVEFORM_COLUMNS,
@@ -100,9 +98,7 @@ impl LiveAnalyzer {
         out.correlation = self.corr.value();
         out.gonio.clear();
         out.gonio.extend(self.gonio.points());
-        let nyquist = f64::from(self.rate) / 2.0;
-        self.spectrum
-            .log_bands(SPECTRUM_BANDS, SPECTRUM_F_MIN, nyquist, &mut out.spectrum);
+        out.spectrum.clone_from(self.spectrum.layers());
         out.waveform.clear();
         out.waveform.extend(self.waveform.columns());
         out.frames = self.frames;
@@ -151,7 +147,8 @@ mod tests {
         assert!((snap.levels[0].peak_dbfs + 6.02).abs() < 0.1);
         assert!((snap.correlation.unwrap() + 1.0).abs() < 1e-4);
         assert_eq!(snap.gonio.len(), GONIO_POINTS);
-        assert_eq!(snap.spectrum.len(), SPECTRUM_BANDS);
+        assert_eq!(snap.spectrum.average.len(), 8192 / 2 + 1);
+        assert!(snap.spectrum.frames > 0);
         assert_eq!(snap.waveform.len(), 40);
         // Mezcla de un par invertido: la forma de onda es plana.
         assert!(

@@ -30,8 +30,12 @@ tracing-subscriber = { workspace = true }
 signal-hook = { workspace = true }
 async-channel = { workspace = true }
 rustix = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+png = { workspace = true }
 
 [dev-dependencies]
+digityzer-testkit = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
 

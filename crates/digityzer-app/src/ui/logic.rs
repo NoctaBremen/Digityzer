@@ -65,15 +65,15 @@ pub fn meter_fraction(db: f32) -> f64 {
 pub enum Zone {
     /// Por debajo de −18 dBFS.
     Normal,
-    /// De −18 a −6 dBFS.
+    /// De −18 a −3 dBFS.
     High,
-    /// Por encima de −6 dBFS.
+    /// Por encima de −3 dBFS.
     Hot,
 }
 
 /// Zona de un nivel.
 pub fn zone(db: f32) -> Zone {
-    if db >= -6.0 {
+    if db >= -3.0 {
         Zone::Hot
     } else if db >= -18.0 {
         Zone::High
@@ -154,7 +154,8 @@ mod tests {
         assert_eq!(meter_fraction(-60.0), 0.0);
         assert_eq!(meter_fraction(-200.0), 0.0);
         assert!((meter_fraction(-30.0) - 0.5).abs() < 1e-9);
-        assert_eq!(zone(-3.0), Zone::Hot);
+        assert_eq!(zone(-2.0), Zone::Hot);
+        assert_eq!(zone(-4.0), Zone::High);
         assert_eq!(zone(-12.0), Zone::High);
         assert_eq!(zone(-30.0), Zone::Normal);
         assert!((log_x(200.0, 20.0, 20_000.0) - 1.0 / 3.0).abs() < 1e-9);

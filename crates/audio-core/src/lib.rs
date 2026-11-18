@@ -5,6 +5,7 @@
 //! - [`analysis`]: detección de cortes en frecuencia (fuente con pérdida) y de falsos hi-res
 //!   (sobremuestreo).
 //! - [`aiff`] y [`tags`]: escritor y lector AIFF y etiquetas ID3 en el chunk `ID3 `.
+//! - [`theme`]: temas de color (propio de Digityzer, no copiado).
 //! - [`gtk`] (feature `gtk`): widget del espectrograma, exportación a PNG y estilo base.
 //!
 //! Spector no se modifica: los cambios se hacen aquí y se anotan en `PROVENANCE.md`.
@@ -21,6 +22,7 @@ pub mod palette;
 pub mod pcm;
 pub mod spectrogram;
 pub mod tags;
+pub mod theme;
 pub mod ticks;
 
 pub use analysis::{
