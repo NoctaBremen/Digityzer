@@ -1,0 +1,75 @@
+# CI de Digityzer: fmt, clippy y tests en cada PR y en cada push a main.
+# Un PR con este workflow en rojo no se fusiona (convenciones del repo, T0.2).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Cabeceras de GTK 4.14 (Ubuntu 24.04) y ALSA. ffmpeg solo lo usan los tests que generan MP3
+  # (se saltan solos si no está).
+  APT_PACKAGES: libgtk-4-dev libasound2-dev pkg-config ffmpeg
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_PACKAGES
+
+      - name: Toolchain de Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      # --all-features: incluye los widgets GTK de audio-core (feature `gtk`).
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --all-features --locked
+
+  msrv:
+    name: MSRV (1.92)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libasound2-dev pkg-config
+
+      - name: Toolchain de Rust (1.92)
+        uses: dtolnay/rust-toolchain@1.92
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets --all-features --locked

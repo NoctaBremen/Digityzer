@@ -30,4 +30,9 @@ cargo run --bin digityzer-cli      # línea de órdenes
 
 Registro con `DIGITYZER_LOG` (p. ej. `DIGITYZER_LOG=debug`).
 
+El CI (`.github/workflows/ci.yml`) ejecuta lo mismo con `--locked` en cada PR y en cada push a
+`main`, más una comprobación con Rust 1.92 (MSRV). Un PR con el CI en rojo no se fusiona: para que
+GitHub lo impida, activa en Settings → Branches la protección de `main` exigiendo los checks
+`fmt · clippy · test` y `MSRV (1.92)`.
+
 Para compilar hacen falta las cabeceras de GTK 4.14 y ALSA (`gtk4` y `alsa-lib` en Arch).
