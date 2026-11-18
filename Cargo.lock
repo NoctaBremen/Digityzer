@@ -311,6 +311,7 @@ name = "digityzer-audio"
 version = "0.1.0"
 dependencies = [
  "audio-core",
+ "digityzer-testkit",
  "thiserror",
  "tracing",
 ]
@@ -320,6 +321,7 @@ name = "digityzer-dsp"
 version = "0.1.0"
 dependencies = [
  "audio-core",
+ "digityzer-testkit",
 ]
 
 [[package]]

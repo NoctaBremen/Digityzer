@@ -7,6 +7,8 @@
 //! - [`wav`]: escritores de fixtures WAV en disco.
 //! - [`ffmpeg`]: generación opcional de fixtures con pérdida si `ffmpeg` está en el PATH.
 //! - [`corrupt`]: corrupciones deterministas de archivos para probar lectores sin pánicos.
+//! - [`vinyl`] (propio de Digityzer): tonos modulados para velocidad y wow & flutter, clics,
+//!   zumbido de masa, diafonía y ruido rosa de surco.
 //!
 //! `signals`, `spectral`, `wav`, `ffmpeg` y `corrupt` están copiados de `spector-testkit` (ver
 //! `PROVENANCE.md` de `audio-core`). Nunca se versionan archivos de audio: todo se genera al vuelo
@@ -16,6 +18,7 @@ pub mod corrupt;
 pub mod ffmpeg;
 pub mod signals;
 pub mod spectral;
+pub mod vinyl;
 pub mod wav;
 
 pub use ffmpeg::{ffmpeg_available, ffmpeg_encode};
@@ -24,6 +27,10 @@ pub use signals::{
     white_noise,
 };
 pub use spectral::{lowpass_brickwall, upsample_from, welch_db};
+pub use vinyl::{
+    ClickSpan, add_clicks, am_tone, click_len, db_to_amp, fm_tone, hum, leak, mix, pink_noise,
+    speed_tone,
+};
 pub use wav::{write_wav_extensible, write_wav_f32, write_wav_f64, write_wav_int};
 
 /// Crea un directorio temporal que se borra al soltarlo.

@@ -16,7 +16,7 @@ ni JACK).
 | `crates/digityzer-project` | Proyecto no destructivo, marcadores y JSON del master |
 | `crates/digityzer-app` | Binarios `digityzer` (GUI GTK4) y `digityzer-cli` |
 | `crates/audio-core` | Código compartido con Spector (espectrograma, cortes y falsos hi-res, AIFF con etiquetas, widgets GTK4). Ver `PROVENANCE.md` |
-| `crates/digityzer-testkit` | Señales sintéticas deterministas para los tests (solo dev) |
+| `crates/digityzer-testkit` | Señales sintéticas deterministas para los tests (solo dev): senos, ruido, tonos modulados, clics, zumbido, diafonía |
 
 ## Comandos
 
