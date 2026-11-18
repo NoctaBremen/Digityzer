@@ -295,6 +295,7 @@ mod tests {
             frames_lost: 0,
             backlog_frames: 9_600,
             realtime: true,
+            recording: true,
         };
         assert_eq!(
             status_line(&st, 96_000),

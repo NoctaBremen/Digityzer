@@ -6,7 +6,10 @@
 //! - Cada xrun se cuenta y se manda por un segundo ring buffer de eventos con su posición.
 //! - Si el ring buffer se llena (el escritor no da abasto), se descartan frames enteros y se
 //!   cuentan: nunca se corta un frame a medias.
-//! - Al terminar el hilo, el productor se suelta: el consumidor lo ve con `is_abandoned()`.
+//! - Los mismos bytes van a un segundo ring buffer para el análisis en vivo. Si el análisis no da
+//!   abasto, ahí se pierden fotogramas de los medidores, nunca muestras del master.
+//! - Al terminar el hilo, los productores se sueltan: los consumidores lo ven con
+//!   `is_abandoned()`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,6 +20,8 @@ use crate::source::{CaptureSource, ReadOutcome, StreamConfig};
 
 /// Capacidad del ring buffer de eventos.
 pub const EVENT_CAPACITY: usize = 4096;
+/// Segundos de audio del ring buffer del análisis.
+pub const ANALYSIS_RING_SECONDS: f64 = 1.0;
 
 /// Configuración del motor.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,6 +91,8 @@ pub struct CaptureOutputs {
     pub audio: rtrb::Consumer<u8>,
     /// Eventos (xruns, desbordamientos).
     pub events: rtrb::Consumer<CaptureEvent>,
+    /// Los mismos bytes que `audio`, para el análisis en vivo (con pérdidas si no se lee).
+    pub analysis: rtrb::Consumer<u8>,
 }
 
 impl Capture {
@@ -103,6 +110,9 @@ impl Capture {
             ((cfg.ring_seconds * f64::from(config.rate)) as usize).max(config.period_frames * 4);
         let (mut producer, audio) = rtrb::RingBuffer::<u8>::new(ring_frames * fb);
         let (mut ev_producer, events) = rtrb::RingBuffer::new(EVENT_CAPACITY);
+        let an_frames = ((ANALYSIS_RING_SECONDS * f64::from(config.rate)) as usize)
+            .max(config.period_frames * 4);
+        let (mut an_producer, analysis) = rtrb::RingBuffer::<u8>::new(an_frames * fb);
         let stop = Arc::new(AtomicBool::new(false));
         let counters = Arc::new(CaptureCounters::default());
         let device = source.device().to_string();
@@ -137,6 +147,10 @@ impl Capture {
                                         frames: lost,
                                     });
                                 }
+                                let an_fit = (an_producer.slots() / fb).min(n);
+                                if an_fit > 0 {
+                                    push(&mut an_producer, &buf[..an_fit * fb]);
+                                }
                                 counters_t.frames.fetch_add(n as u64, Ordering::Release);
                             }
                             ReadOutcome::Xrun => {
@@ -162,7 +176,11 @@ impl Capture {
                 device,
                 card_name,
             },
-            CaptureOutputs { audio, events },
+            CaptureOutputs {
+                audio,
+                events,
+                analysis,
+            },
         ))
     }
 

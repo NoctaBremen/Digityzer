@@ -28,6 +28,14 @@ cargo run --bin digityzer          # interfaz
 cargo run --bin digityzer-cli      # línea de órdenes
 ```
 
+### Grabar con la interfaz
+
+`digityzer` abre la ventana principal: dispositivo, par de canales y frecuencia; carpeta, nombre
+del disco, cara y notas. **Armar** abre la tarjeta y muestra medidores de pico y RMS con
+retención y aviso de clipping, espectro en vivo, goniómetro con correlación de fase y la forma de
+onda, sin grabar. **Grabar** y **Parar** crean `<disco> - Cara A.wav` con su JSON sin soltar la
+tarjeta, y la ventana pasa a la cara B. El «Origen sintético» permite probarla sin la mesa.
+
 ### Grabar desde la terminal
 
 ```bash

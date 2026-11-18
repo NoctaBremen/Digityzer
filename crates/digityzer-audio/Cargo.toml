@@ -16,6 +16,8 @@ tracing = { workspace = true }
 digityzer-project = { workspace = true }
 alsa = { workspace = true }
 rtrb = { workspace = true }
+triple_buffer = { workspace = true }
+digityzer-dsp = { workspace = true }
 thread-priority = { workspace = true }
 blake3 = { workspace = true }
 

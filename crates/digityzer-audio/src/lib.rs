@@ -21,7 +21,9 @@ pub use alsa_source::{AlsaRequest, AlsaSource};
 pub use engine::{Capture, CaptureEvent, EngineConfig};
 pub use error::AudioError;
 pub use format::SampleFormat;
-pub use recorder::{RecordRequest, RecordStatus, Recorder, RecordingResult, verify_master};
+pub use recorder::{
+    RecordRequest, RecordStatus, Recorder, RecordingResult, Session, verify_master,
+};
 pub use source::{CaptureSource, ReadOutcome, StreamConfig, SyntheticSource};
 
 /// Versión de la crate (la del workspace).

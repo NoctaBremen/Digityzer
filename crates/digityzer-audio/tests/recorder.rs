@@ -147,3 +147,55 @@ fn no_sobrescribe_ni_acepta_un_par_imposible() {
     let e = Recorder::start(Box::new(src), req).unwrap_err().to_string();
     assert!(e.contains("13–14") && e.contains("12 canales"), "{e}");
 }
+
+#[test]
+fn sesion_armada_grabar_parar_y_volver_a_grabar() {
+    use digityzer_audio::Session;
+    let dir = digityzer_testkit::temp_dir();
+    let src = SyntheticSource::new(config(SampleFormat::S32Le)).realtime();
+    // La señal esperada se calcula antes y sin el ritmo de tiempo real: 20 s de sobra.
+    let all =
+        all_bytes(SyntheticSource::new(config(SampleFormat::S32Le)).with_total_frames(96_000 * 20));
+    let expected = pair(&all, SampleFormat::S32Le, [2, 3]);
+    let mut s = Session::open(
+        Box::new(src),
+        [3, 4],
+        EngineConfig {
+            realtime_priority: None,
+            ..EngineConfig::default()
+        },
+    )
+    .unwrap();
+    // Armada: medidores en marcha, nada grabado.
+    std::thread::sleep(Duration::from_millis(300));
+    let snap = s.snapshot().clone();
+    assert!(snap.frames > 0);
+    // Origen sintético: canal 3 = 1.320 Hz y canal 4 = 1.760 Hz a −12 dBFS de pico.
+    assert!(
+        (snap.levels[0].peak_dbfs + 12.04).abs() < 0.2,
+        "{:?}",
+        snap.levels
+    );
+    assert!(!s.status().recording);
+
+    for name in ["cara-a.wav", "cara-b.wav"] {
+        let path = dir.path().join(name);
+        s.start_recording(&path, name).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(s.status().recording && s.status().frames_written > 0);
+        let r = s.stop_recording().unwrap();
+        assert!(verify_master(&path).unwrap().ok());
+        assert_eq!(r.info.notes, name);
+        // El master es un tramo contiguo de la señal, empezando en un frame completo.
+        let bytes = std::fs::read(&path).unwrap();
+        let data = &bytes[HEADER_LEN as usize..];
+        assert!(!data.is_empty() && data.len().is_multiple_of(8));
+        let at = expected
+            .windows(64)
+            .position(|w| w == &data[..64])
+            .expect("el inicio del master está en la señal");
+        assert!(at.is_multiple_of(8));
+        assert_eq!(&expected[at..at + data.len()], data);
+    }
+    assert!(s.close().unwrap().is_none());
+}

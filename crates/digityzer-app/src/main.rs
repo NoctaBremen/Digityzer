@@ -1,5 +1,6 @@
-//! `digityzer`: interfaz GTK4. De momento solo abre la ventana principal vacía; la ventana de
-//! grabación llega en T2.1.
+//! `digityzer`: interfaz GTK4 para grabar vinilo (fase 2).
+
+mod ui;
 
 use gtk4 as gtk;
 
@@ -21,21 +22,6 @@ fn main() -> glib::ExitCode {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.connect_startup(|_| audio_core::gtk::load_css());
-    app.connect_activate(build_window);
+    app.connect_activate(ui::window::build);
     app.run()
-}
-
-fn build_window(app: &gtk::Application) {
-    let placeholder = gtk::Label::builder()
-        .label("Digityzer")
-        .css_classes(["title-1", "dim-label"])
-        .build();
-    let window = gtk::ApplicationWindow::builder()
-        .application(app)
-        .title("Digityzer")
-        .default_width(960)
-        .default_height(640)
-        .child(&placeholder)
-        .build();
-    window.present();
 }

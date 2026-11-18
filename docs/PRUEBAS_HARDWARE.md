@@ -61,3 +61,30 @@ Para el xrun provocado: durante una grabación, `kill -STOP <pid>` unos segundos
 ## T1.3 — huella
 
 `digityzer-cli verify <master>` después de cada prueba. Debe decir «correcto».
+
+# Pruebas con la mesa (fase 2)
+
+```bash
+./target/release/digityzer
+```
+
+## T2.1 — una cara sin terminal
+
+1. Dispositivo: la Xone:96 (USB 1). Par: 3–4 (plato A). Frecuencia: 96 kHz.
+2. Carpeta y nombre del disco; notas si quieres. Cara A.
+3. **Armar**: los medidores se mueven con el disco, sin grabar nada.
+4. **● Grabar** al bajar la aguja; **■ Parar** al acabar la cara. La ventana pasa sola a Cara B.
+
+Acepta: `<carpeta>/<disco> - Cara A.wav` y su `.json` existen y
+`digityzer-cli verify` dice «correcto». Con xwax abierto, **Armar** muestra «Dispositivo
+ocupado».
+
+## T2.2–T2.5 — medidores
+
+- Medidores: un tono de 1 kHz del disco de test da la misma cifra en L y R; el aviso CLIP solo
+  salta con tres o más muestras seguidas a fondo de escala.
+- Espectro: fluido (≈ 60 fps) en Hyprland durante una grabación; al acabar, el resumen dice
+  «sin xruns».
+- Goniómetro: el disco mono (o un tono en los dos canales) es una línea vertical y la
+  correlación marca +1.
+- Forma de onda: se desplaza hacia la izquierda; roja mientras se graba.
