@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use audio_core::theme::{THEMES, Theme};
 use digityzer_audio::probe::{CaptureCaps, khz, probe};
+use digityzer_audio::recover::{find_partials, recover};
 use digityzer_audio::{
     AlsaRequest, AlsaSource, AudioBackend, AudioError, CaptureSource, EngineConfig,
     RecordingResult, SampleFormat, Session, StreamConfig, SyntheticSource,
@@ -527,6 +528,8 @@ pub fn build(app: &gtk::Application) {
             glib::ControlFlow::Continue
         });
         let s = Rc::clone(a);
+        glib::idle_add_local_once(move || s.check_partials());
+        let s = Rc::clone(a);
         window.connect_close_request(move |_| {
             s.shutdown();
             glib::Propagation::Proceed
@@ -540,6 +543,7 @@ impl App {
         gtk::AlertDialog::builder()
             .message(message)
             .detail(detail)
+            .buttons(["Cerrar"])
             .modal(true)
             .build()
             .show(Some(&self.window));
@@ -623,6 +627,7 @@ impl App {
             if let Some(path) = res.ok().and_then(|f| f.path()) {
                 *s.folder.borrow_mut() = path;
                 s.update_folder_label();
+                s.check_partials();
             }
         });
     }
@@ -813,10 +818,75 @@ impl App {
             s.set_recording_ui(false);
             s.recording_done(result);
             if finished {
-                s.capture_lost();
+                // recording_done ya ha avisado de la interrupción.
+                s.capture_lost(false);
             } else if s.side() == Side::A {
                 s.side_b.set_active(true);
             }
+        });
+    }
+
+    /// Grabaciones sin cerrar (`.partial`) en la carpeta: ofrece recuperarlas (T1.6).
+    fn check_partials(self: &Rc<Self>) {
+        if self
+            .session
+            .borrow()
+            .as_ref()
+            .is_some_and(Session::is_recording)
+        {
+            return;
+        }
+        let list = find_partials(&self.folder.borrow());
+        if list.is_empty() {
+            return;
+        }
+        let names: Vec<String> = list.iter().map(|p| file_name(p)).collect();
+        let dialog = gtk::AlertDialog::builder()
+            .message(if list.len() == 1 {
+                "Hay una grabación sin cerrar".to_string()
+            } else {
+                format!("Hay {} grabaciones sin cerrar", list.len())
+            })
+            .detail(format!(
+                "{}\n\nEl programa se cerró mientras grababa. Se pueden recuperar cortándolas en la \
+                 última muestra confirmada en el disco: como mucho se pierden 2 segundos, y lo \
+                 recuperado es idéntico a lo que se capturó.",
+                names.join("\n")
+            ))
+            .buttons(["Recuperar", "Ahora no"])
+            .default_button(0)
+            .cancel_button(1)
+            .modal(true)
+            .build();
+        let s = Rc::clone(self);
+        dialog.choose(Some(&self.window), gio::Cancellable::NONE, move |res| {
+            if res != Ok(0) {
+                return;
+            }
+            s.status_lbl.set_label("Recuperando…");
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::spawn(move || {
+                let out: Vec<String> = list
+                    .iter()
+                    .map(|p| match recover(p) {
+                        Ok(r) => format!(
+                            "✓ {} ({}, perdidos ≈ {} s)",
+                            file_name(&r.master),
+                            clock(r.info.duration_s),
+                            format!("{:.1}", r.info.seconds_lost.unwrap_or(0.0)).replace('.', ",")
+                        ),
+                        Err(e) => format!("✗ {}: {e}", file_name(p)),
+                    })
+                    .collect();
+                let _ = tx.send_blocking(out);
+            });
+            let s2 = Rc::clone(&s);
+            glib::spawn_future_local(async move {
+                if let Ok(lines) = rx.recv().await {
+                    s2.status_lbl.set_label("Recuperación terminada.");
+                    s2.alert("Recuperación terminada", &lines.join("\n"));
+                }
+            });
         });
     }
 
@@ -824,6 +894,17 @@ impl App {
         match result {
             Ok(r) => {
                 let i = &r.info;
+                if i.interrupted {
+                    self.alert(
+                        "La grabación se ha interrumpido",
+                        &format!(
+                            "{}. El master está guardado y cerrado hasta ese punto ({}): {}.",
+                            i.interruption.as_deref().unwrap_or("la captura se cortó"),
+                            clock(i.duration_s),
+                            file_name(&r.master)
+                        ),
+                    );
+                }
                 let xr = if i.xruns.is_empty() {
                     "sin xruns".to_string()
                 } else {
@@ -890,13 +971,16 @@ impl App {
     }
 
     /// La captura se ha parado sola (tarjeta desconectada o error de ALSA).
-    fn capture_lost(&self) {
+    fn capture_lost(&self, warn: bool) {
         if let Some(s) = self.session.borrow_mut().take() {
             let _ = s.close();
         }
         self.clear_views();
         self.set_recording_ui(false);
         self.set_armed_ui(false);
+        if !warn {
+            return;
+        }
         self.alert(
             "La captura se ha detenido",
             "La tarjeta ha dejado de dar audio (¿desconectada?). Si se estaba grabando, el \
@@ -991,7 +1075,7 @@ impl App {
             if status.recording {
                 self.stop_recording();
             } else {
-                self.capture_lost();
+                self.capture_lost(true);
             }
         }
     }

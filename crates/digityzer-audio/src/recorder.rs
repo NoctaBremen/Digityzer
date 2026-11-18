@@ -18,13 +18,18 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
 use digityzer_dsp::{LiveAnalyzer, LiveSnapshot};
-use digityzer_project::{AudioHash, MASTER_INFO_VERSION, MasterInfo, XrunRecord, utc_iso8601};
+use digityzer_project::{
+    AudioHash, MASTER_INFO_VERSION, MasterInfo, PartialInfo, XrunRecord, unix_now, utc_iso8601,
+};
 
 use crate::engine::{Capture, CaptureEvent, EngineConfig};
 use crate::error::AudioError;
 use crate::format::SampleFormat;
 use crate::source::{CaptureSource, StreamConfig};
-use crate::wav::{BlockHasher, HASH_BLOCK_BYTES, MasterSummary, MasterWriter, read_header};
+use crate::wav::{
+    BlockHasher, HASH_BLOCK_BYTES, MasterSummary, MasterWriter, SYNC_INTERVAL, partial_path,
+    read_header,
+};
 
 /// Cada cuánto publica el análisis una instantánea (≈ 60 por segundo).
 pub const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(16);
@@ -70,8 +75,9 @@ pub struct RecordingResult {
     pub json: PathBuf,
     /// Lo que se ha guardado en el JSON.
     pub info: MasterInfo,
-    /// Error de la captura, si se cortó por un fallo (lo grabado hasta ahí está guardado).
-    pub capture_error: Option<AudioError>,
+    /// Error de la captura, si se cortó por un fallo (lo grabado hasta ahí está guardado y la
+    /// ficha lo marca como interrumpido).
+    pub capture_error: Option<String>,
 }
 
 struct WriterOutcome {
@@ -80,13 +86,14 @@ struct WriterOutcome {
 }
 
 enum WriterCmd {
-    Start(Box<MasterWriter>, mpsc::Sender<()>),
+    Start(Box<MasterWriter>, Box<PartialInfo>, mpsc::Sender<()>),
     Stop(mpsc::Sender<Result<WriterOutcome, AudioError>>),
 }
 
 struct Active {
     path: PathBuf,
     json: PathBuf,
+    progress: PathBuf,
     notes: String,
     started: SystemTime,
 }
@@ -103,6 +110,7 @@ pub struct Session {
     analysis: Option<JoinHandle<()>>,
     snapshot: triple_buffer::Output<LiveSnapshot>,
     active: Option<Active>,
+    capture_error: Option<String>,
 }
 
 impl std::fmt::Debug for Session {
@@ -162,6 +170,7 @@ impl Session {
             analysis: Some(analysis),
             snapshot,
             active: None,
+            capture_error: None,
         })
     }
 
@@ -233,25 +242,37 @@ impl Session {
             return Err(AudioError::Invalid("ya se está grabando".into()));
         }
         let json = MasterInfo::path_for(path);
-        if json.exists() {
-            return Err(AudioError::Invalid(format!(
-                "ya existe {}; no se sobrescribe",
-                json.display()
-            )));
+        let progress = PartialInfo::path_for(&partial_path(path));
+        for p in [&json, &progress] {
+            if p.exists() {
+                return Err(AudioError::Invalid(format!(
+                    "ya existe {}; no se sobrescribe",
+                    p.display()
+                )));
+            }
         }
         let cfg = self.config();
         let pair0 = [self.pair[0] - 1, self.pair[1] - 1];
         let writer = MasterWriter::create(path, cfg.format, cfg.rate, cfg.channels, pair0)?;
-        let (tx, rx) = mpsc::channel();
-        self.send(WriterCmd::Start(Box::new(writer), tx))?;
-        rx.recv()
-            .map_err(|_| AudioError::ThreadPanicked("escritor"))?;
-        self.active = Some(Active {
+        let active = Active {
             path: path.to_path_buf(),
             json,
+            progress,
             notes: notes.to_string(),
             started: SystemTime::now(),
-        });
+        };
+        let partial = PartialInfo {
+            master: self.base_info(&active),
+            block_align: 2 * cfg.format.bytes() as u16,
+            confirmed_frames: 0,
+            confirmed_unix: unix_now(),
+        };
+        let (tx, rx) = mpsc::channel();
+        self.send(WriterCmd::Start(Box::new(writer), Box::new(partial), tx))?;
+        rx.recv()
+            .map_err(|_| AudioError::ThreadPanicked("escritor"))?;
+        self.capture_error = None;
+        self.active = Some(active);
         Ok(())
     }
 
@@ -274,20 +295,29 @@ impl Session {
         let outcome = rx
             .recv()
             .map_err(|_| AudioError::ThreadPanicked("escritor"))??;
-        let info = self.master_info(&active, outcome);
+        // Si la captura se ha parado sola, por qué (la tarjeta se apagó o se desconectó).
+        if self.capture.is_finished() && self.capture_error.is_none() {
+            self.stop_capture();
+        }
+        let mut info = self.master_info(&active, outcome);
+        if let Some(e) = &self.capture_error {
+            info.interrupted = true;
+            info.interruption = Some(format!("la captura se cortó: {e}"));
+        }
         info.write_new(&active.json)?;
+        // La ficha de progreso ya no hace falta: el master está cerrado y con su ficha.
+        let _ = std::fs::remove_file(&active.progress);
         Ok(RecordingResult {
             master: active.path,
             json: active.json,
             info,
-            capture_error: None,
+            capture_error: self.capture_error.clone(),
         })
     }
 
-    fn master_info(&self, active: &Active, outcome: WriterOutcome) -> MasterInfo {
+    /// Ficha del master sin los datos que solo se saben al cerrar (frames, huella).
+    fn base_info(&self, active: &Active) -> MasterInfo {
         let cfg = self.config();
-        let rate = f64::from(cfg.rate);
-        let s = outcome.summary;
         MasterInfo {
             version: MASTER_INFO_VERSION,
             digityzer_version: crate::VERSION.to_string(),
@@ -302,14 +332,41 @@ impl Session {
             sample_rate: cfg.rate,
             sample_format: cfg.format.alsa_name().to_string(),
             container_bits: cfg.format.bits(),
-            lsb_zero_bits: s.lsb_zero_bits,
+            lsb_zero_bits: 0,
             channels_opened: cfg.channels,
             channel_pair: self.pair,
+            container: "WAV".to_string(),
+            frames: 0,
+            duration_s: 0.0,
+            data_bytes: 0,
+            started_at: utc_iso8601(active.started),
+            finished_at: String::new(),
+            realtime: self.capture.counters().realtime.load(Ordering::Relaxed),
+            xruns: Vec::new(),
+            frames_lost_ring: 0,
+            hash: AudioHash {
+                algorithm: "blake3".into(),
+                block_bytes: HASH_BLOCK_BYTES,
+                blocks: Vec::new(),
+                total: String::new(),
+            },
+            notes: active.notes.clone(),
+            interrupted: false,
+            interruption: None,
+            recovered: false,
+            seconds_lost: None,
+        }
+    }
+
+    fn master_info(&self, active: &Active, outcome: WriterOutcome) -> MasterInfo {
+        let rate = f64::from(self.config().rate);
+        let s = outcome.summary;
+        MasterInfo {
+            lsb_zero_bits: s.lsb_zero_bits,
             container: if s.rf64 { "RF64" } else { "WAV" }.to_string(),
             frames: s.frames,
             duration_s: s.frames as f64 / rate,
             data_bytes: s.data_bytes,
-            started_at: utc_iso8601(active.started),
             finished_at: utc_iso8601(SystemTime::now()),
             realtime: self.capture.counters().realtime.load(Ordering::Relaxed),
             xruns: outcome
@@ -327,23 +384,25 @@ impl Session {
                 blocks: s.block_hashes,
                 total: s.total_hash,
             },
-            notes: active.notes.clone(),
+            ..self.base_info(active)
         }
     }
 
     /// Detiene la captura (sin cerrar la grabación en curso). Devuelve el error de la captura,
     /// si lo hubo.
     pub fn stop_capture(&mut self) -> Option<AudioError> {
-        self.capture.stop().err()
+        let e = self.capture.stop().err();
+        if let Some(e) = &e {
+            self.capture_error = Some(e.to_string());
+        }
+        e
     }
 
     /// Suelta el dispositivo. Si se estaba grabando, primero cierra el master.
     pub fn close(mut self) -> Result<Option<RecordingResult>, AudioError> {
-        let capture_error = self.stop_capture();
+        self.stop_capture();
         let result = if self.active.is_some() {
-            let mut r = self.stop_recording()?;
-            r.capture_error = capture_error;
-            Some(r)
+            Some(self.stop_recording()?)
         } else {
             None
         };
@@ -450,6 +509,30 @@ struct Recording {
     start_frame: u64,
     skip: usize,
     xruns: Vec<u64>,
+    progress: PartialInfo,
+    progress_path: PathBuf,
+    last_sync: Instant,
+}
+
+impl Recording {
+    /// Punto de confirmación: `fdatasync` del master y ficha de progreso al día (T1.6).
+    fn confirm(&mut self) -> Result<(), AudioError> {
+        let frames = self.writer.sync_point()?;
+        let rate = f64::from(self.progress.master.sample_rate.max(1));
+        self.progress.confirmed_frames = frames;
+        self.progress.confirmed_unix = unix_now();
+        self.progress.master.xruns = self
+            .xruns
+            .iter()
+            .map(|&frame| XrunRecord {
+                frame,
+                seconds: frame as f64 / rate,
+            })
+            .collect();
+        self.progress.save(&self.progress_path)?;
+        self.last_sync = Instant::now();
+        Ok(())
+    }
 }
 
 fn writer_loop(
@@ -484,18 +567,23 @@ fn writer_loop(
             }
         };
         match cmd {
-            Some(WriterCmd::Start(writer, reply)) => {
+            Some(WriterCmd::Start(writer, progress, reply)) => {
                 let skip = ((frame_bytes - consumed % frame_bytes) % frame_bytes) as usize;
                 let start_frame = consumed.div_ceil(frame_bytes);
                 // Eventos anteriores al inicio: fuera.
                 drain_events(&mut events, Some((u64::MAX, &mut Vec::new())));
-                rec = Some(Recording {
+                let progress_path = PartialInfo::path_for(writer.partial());
+                let mut r = Recording {
                     writer,
                     start_frame,
                     skip,
                     xruns: Vec::new(),
-                });
-                failed = None;
+                    progress: *progress,
+                    progress_path,
+                    last_sync: Instant::now(),
+                };
+                failed = r.confirm().err();
+                rec = if failed.is_some() { None } else { Some(r) };
                 written.store(0, Ordering::Relaxed);
                 let _ = reply.send(());
             }
@@ -550,6 +638,16 @@ fn writer_loop(
             break;
         } else {
             std::thread::sleep(Duration::from_millis(5));
+        }
+        // Cada SYNC_INTERVAL, punto de confirmación (aquí, en el hilo escritor, nunca en el de
+        // captura).
+        if let Some(r) = rec.as_mut()
+            && r.last_sync.elapsed() >= SYNC_INTERVAL
+            && let Err(e) = r.confirm()
+        {
+            tracing::error!("error al confirmar el master: {e}");
+            failed = Some(e);
+            rec = None;
         }
     }
 }

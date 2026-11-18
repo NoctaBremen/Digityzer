@@ -86,6 +86,86 @@ fn ctrl_c_cierra_el_master_sin_perder_datos() {
     assert!(info["frames"].as_u64().unwrap() > 96_000);
 }
 
+/// T1.6: matar la grabación con `kill -9` pierde como mucho 2 s, y lo recuperado es idéntico bit a
+/// bit a lo capturado hasta ese punto.
+#[test]
+fn kill_9_y_recuperacion_bit_a_bit() {
+    use digityzer_audio::{
+        CaptureSource, ReadOutcome, SampleFormat, StreamConfig, SyntheticSource,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let master = dir.path().join("corte.wav");
+    let started = std::time::Instant::now();
+    let mut child = Command::new(BIN)
+        .args(["record", "--simulate", "--pair", "3-4"])
+        .arg(&master)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(5500));
+    child.kill().unwrap(); // SIGKILL
+    let elapsed = started.elapsed().as_secs_f64();
+    child.wait().unwrap();
+    let partial = dir.path().join("corte.wav.partial");
+    assert!(partial.exists() && !master.exists());
+
+    let out = Command::new(BIN)
+        .arg("recover")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(master.exists() && !partial.exists());
+    let info: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("corte.wav.json")).unwrap()).unwrap();
+    assert_eq!(info["recovered"], true);
+    assert_eq!(info["interrupted"], true);
+    let frames = info["frames"].as_u64().unwrap();
+    let secs = frames as f64 / 96_000.0;
+    assert!(secs >= elapsed - 2.5, "recuperados {secs} s de {elapsed} s");
+    let lost = info["seconds_lost"].as_f64().unwrap();
+    assert!(lost <= 2.5, "{lost}");
+    // La estimación de lo perdido cuadra con lo que faltó (± medio segundo de arranque).
+    assert!(
+        (secs + lost - elapsed).abs() < 0.6,
+        "{secs} + {lost} frente a {elapsed}"
+    );
+    let v = Command::new(BIN)
+        .arg("verify")
+        .arg(&master)
+        .output()
+        .unwrap();
+    assert!(v.status.success());
+
+    // Bit a bit: el origen sintético es determinista; el par 3–4 de sus primeros `frames`.
+    let cfg = StreamConfig {
+        rate: 96_000,
+        format: SampleFormat::S32Le,
+        channels: 12,
+        period_frames: 1024,
+    };
+    let mut src = SyntheticSource::new(cfg).with_total_frames(frames);
+    let mut buf = vec![0u8; 48 * 1024];
+    let mut expected = Vec::new();
+    src.start().unwrap();
+    while let ReadOutcome::Frames(n) = src.read(&mut buf).unwrap() {
+        for f in buf[..n * 48].chunks_exact(48) {
+            expected.extend_from_slice(&f[8..16]);
+        }
+    }
+    let bytes = std::fs::read(&master).unwrap();
+    assert_eq!(bytes.len() - 104, expected.len());
+    assert!(
+        bytes[104..] == expected[..],
+        "lo recuperado no coincide con lo capturado"
+    );
+}
+
 #[test]
 fn sin_dispositivo_ni_simulacion_es_un_error() {
     let dir = tempfile::tempdir().unwrap();

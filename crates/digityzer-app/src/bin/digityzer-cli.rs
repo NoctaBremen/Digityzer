@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use digityzer_audio::probe::{format_backends, format_report, khz, probe, probe_backends};
+use digityzer_audio::recover::{find_partials, is_partial, recover};
 use digityzer_audio::{
     AlsaRequest, AlsaSource, AudioBackend, AudioError, CaptureSource, EngineConfig, RecordRequest,
     RecordStatus, Recorder, SampleFormat, StreamConfig, SyntheticSource, verify_master,
@@ -60,6 +61,13 @@ enum Command {
         /// Graba de un origen sintético de 12 canales en lugar de la tarjeta (para probar).
         #[arg(long)]
         simulate: bool,
+    },
+    /// Recupera grabaciones cortadas de golpe (archivos .partial): las corta en la última muestra
+    /// confirmada y las cierra como master con su JSON.
+    Recover {
+        /// Un archivo .partial o una carpeta con ellos (por defecto, la actual).
+        #[arg(default_value = ".")]
+        path: PathBuf,
     },
     /// Comprueba que el audio de un master coincide con la huella de su JSON.
     Verify {
@@ -126,6 +134,42 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             println!();
             print!("{}", format_backends(&probe_backends()));
             Ok(ExitCode::SUCCESS)
+        }
+        Command::Recover { path } => {
+            let list = if path.is_dir() {
+                find_partials(&path)
+            } else if is_partial(&path) {
+                vec![path.clone()]
+            } else {
+                bail!(
+                    "{} no es un archivo .partial ni una carpeta",
+                    path.display()
+                );
+            };
+            if list.is_empty() {
+                println!("No hay grabaciones que recuperar en {}.", path.display());
+                return Ok(ExitCode::SUCCESS);
+            }
+            let mut ok = true;
+            for p in list {
+                match recover(&p) {
+                    Ok(r) => println!(
+                        "Recuperado {} ({}, perdidos ≈ {:.1} s)",
+                        r.master.display(),
+                        clock(r.info.duration_s),
+                        r.info.seconds_lost.unwrap_or(0.0)
+                    ),
+                    Err(e) => {
+                        ok = false;
+                        eprintln!("No se pudo recuperar {}: {e}", p.display());
+                    }
+                }
+            }
+            Ok(if ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            })
         }
         Command::Verify { master } => {
             let r = verify_master(&master)

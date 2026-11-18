@@ -1,5 +1,22 @@
 # Cambios
 
+## 1.2.0 — 18-11-2026
+
+**Grabación a prueba de cortes (T1.6)**
+- Mientras se graba, el master es `<nombre>.wav.partial`. Cada 2 s el hilo escritor (nunca el de
+  captura) vuelca lo grabado, actualiza el tamaño en la cabecera WAV/RF64, hace `fdatasync` y
+  guarda en `<nombre>.wav.partial.json` las muestras confirmadas. Al parar bien, se renombra al
+  nombre final sin sobrescribir nada.
+- Si la Xone se apaga o se desconecta, la grabación se cierra limpia con todo lo capturado y su
+  ficha la marca como interrumpida (`interrupted`, `interruption`).
+- Al abrir el programa (y al cambiar de carpeta) ofrece recuperar los `.partial` que queden: los
+  corta en la última muestra confirmada, rehace la cabecera, calcula la huella y anota en la ficha
+  que es recuperado y cuántos segundos se perdieron (`recovered`, `seconds_lost`). También
+  `digityzer-cli recover [carpeta|archivo]`.
+- Probado: matar el proceso con `kill -9` a mitad pierde como mucho 2 s, y lo recuperado es
+  idéntico bit a bit a lo capturado hasta ese punto.
+- Los avisos de la ventana tienen el botón «Cerrar» en castellano.
+
 ## 1.1.0 — 18-11-2026
 
 **Capa de audio elegible**

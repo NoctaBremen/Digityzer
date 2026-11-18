@@ -199,3 +199,66 @@ fn sesion_armada_grabar_parar_y_volver_a_grabar() {
     }
     assert!(s.close().unwrap().is_none());
 }
+
+/// Origen que da audio y después falla como una tarjeta desconectada.
+struct Unplugged {
+    inner: SyntheticSource,
+    left: u64,
+}
+
+impl CaptureSource for Unplugged {
+    fn config(&self) -> StreamConfig {
+        self.inner.config()
+    }
+    fn device(&self) -> &str {
+        "hw:CARD=X1,DEV=0"
+    }
+    fn card_name(&self) -> &str {
+        "XONE 96 USB 1"
+    }
+    fn start(&mut self) -> Result<(), digityzer_audio::AudioError> {
+        self.inner.start()
+    }
+    fn read(&mut self, buf: &mut [u8]) -> Result<ReadOutcome, digityzer_audio::AudioError> {
+        if self.left == 0 {
+            return Err(digityzer_audio::AudioError::Alsa {
+                context: "leer".into(),
+                source: alsa::Error::new("snd_pcm_readi", -19), // ENODEV
+            });
+        }
+        let r = self.inner.read(buf)?;
+        if let ReadOutcome::Frames(n) = r {
+            self.left = self.left.saturating_sub(n as u64);
+        }
+        Ok(r)
+    }
+}
+
+/// T1.6: si la tarjeta se apaga o se desconecta, la grabación se cierra limpia y se marca como
+/// interrumpida, con todo lo capturado hasta ese punto.
+#[test]
+fn tarjeta_desconectada_cierra_limpio_e_interrumpida() {
+    let dir = digityzer_testkit::temp_dir();
+    let path = dir.path().join("cara-a.wav");
+    let src = Unplugged {
+        inner: SyntheticSource::new(config(SampleFormat::S32Le)),
+        left: 96_000,
+    };
+    let rec = Recorder::start(Box::new(src), request(path.clone())).unwrap();
+    while !rec.capture_finished() {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let r = rec.stop().unwrap();
+    assert!(
+        r.capture_error
+            .as_deref()
+            .is_some_and(|e| e.contains("leer")),
+        "{r:?}"
+    );
+    assert!(r.info.interrupted && !r.info.recovered);
+    assert!(r.info.interruption.as_deref().unwrap().contains("se cortó"));
+    assert_eq!(r.info.frames, 96_256); // períodos de 1024 frames completos
+    assert!(path.exists() && !dir.path().join("cara-a.wav.partial").exists());
+    assert!(!dir.path().join("cara-a.wav.partial.json").exists());
+    assert!(verify_master(&path).unwrap().ok());
+}

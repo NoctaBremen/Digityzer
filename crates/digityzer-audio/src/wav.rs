@@ -11,13 +11,16 @@
 //! data       tamaño   … muestras …
 //! ```
 //!
-//! La cabecera se reescribe cada segundo, así que si el programa se cae el archivo sigue
-//! siendo legible hasta casi el final.
+//! A prueba de cortes (T1.6): mientras se graba, el archivo es `<master>.partial`. El hilo
+//! escritor (nunca el de captura) llama cada [`SYNC_INTERVAL`] a [`MasterWriter::sync_point`]:
+//! vuelca el búfer, reescribe la cabecera con el tamaño y hace `fdatasync`, y esos frames quedan
+//! **confirmados** en el disco. Al cerrar bien, se renombra al nombre final sin sobrescribir nada.
+//! Si el proceso muere, `recover` corta el `.partial` en la última muestra confirmada.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AudioError;
 use crate::format::SampleFormat;
@@ -28,8 +31,70 @@ pub const HEADER_LEN: u64 = 104;
 const RIFF_OVERHEAD: u64 = HEADER_LEN - 8;
 /// Bloque de la huella.
 pub const HASH_BLOCK_BYTES: u64 = 1 << 20;
-/// Cada cuánto se reescribe la cabecera.
-pub const HEADER_REFRESH: Duration = Duration::from_secs(1);
+/// Cada cuánto se confirma lo escrito en el disco (cabecera + `fdatasync`).
+pub const SYNC_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Búfer de escritura del master (bytes).
+pub const WRITE_BUFFER: usize = 64 * 1024;
+
+/// Extensión del archivo mientras se graba.
+pub const PARTIAL_SUFFIX: &str = ".partial";
+
+/// Ruta del archivo en curso de un master: `<master>.partial`.
+pub fn partial_path(master: &Path) -> PathBuf {
+    let mut s = master.as_os_str().to_owned();
+    s.push(PARTIAL_SUFFIX);
+    PathBuf::from(s)
+}
+
+/// Cabecera de [`HEADER_LEN`] bytes para `data_bytes` de audio de un par en `format` a `rate`.
+/// Pasa a RF64 si el tamaño RIFF supera `rf64_threshold`.
+pub fn header_bytes(
+    format: SampleFormat,
+    rate: u32,
+    data_bytes: u64,
+    rf64_threshold: u64,
+) -> [u8; HEADER_LEN as usize] {
+    let mut h = [0u8; HEADER_LEN as usize];
+    let riff = data_bytes + RIFF_OVERHEAD;
+    let rf64 = riff > rf64_threshold;
+    let bits = format.bits();
+    let block_align = 2 * format.bytes() as u16;
+    h[0..4].copy_from_slice(if rf64 { b"RF64" } else { b"RIFF" });
+    h[4..8].copy_from_slice(&(if rf64 { u32::MAX } else { riff as u32 }).to_le_bytes());
+    h[8..12].copy_from_slice(b"WAVE");
+    h[12..16].copy_from_slice(if rf64 { b"ds64" } else { b"JUNK" });
+    h[16..20].copy_from_slice(&28u32.to_le_bytes());
+    if rf64 {
+        h[20..28].copy_from_slice(&riff.to_le_bytes());
+        h[28..36].copy_from_slice(&data_bytes.to_le_bytes());
+        h[36..44].copy_from_slice(&(data_bytes / u64::from(block_align)).to_le_bytes());
+        // 44..48: tabla de chunks vacía.
+    }
+    h[48..52].copy_from_slice(b"fmt ");
+    h[52..56].copy_from_slice(&40u32.to_le_bytes());
+    h[56..58].copy_from_slice(&0xFFFEu16.to_le_bytes());
+    h[58..60].copy_from_slice(&2u16.to_le_bytes());
+    h[60..64].copy_from_slice(&rate.to_le_bytes());
+    h[64..68].copy_from_slice(&(rate * u32::from(block_align)).to_le_bytes());
+    h[68..70].copy_from_slice(&block_align.to_le_bytes());
+    h[70..72].copy_from_slice(&bits.to_le_bytes());
+    h[72..74].copy_from_slice(&22u16.to_le_bytes());
+    h[74..76].copy_from_slice(&bits.to_le_bytes());
+    h[76..80].copy_from_slice(&3u32.to_le_bytes());
+    h[80..96].copy_from_slice(&PCM_GUID);
+    h[96..100].copy_from_slice(b"data");
+    let data = if rf64 { u32::MAX } else { data_bytes as u32 };
+    h[100..104].copy_from_slice(&data.to_le_bytes());
+    h
+}
+
+/// Renombra `from` a `to` sin sobrescribir nunca: enlace duro (falla si `to` existe) y después
+/// borra `from`.
+pub fn rename_no_overwrite(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(from, to)?;
+    std::fs::remove_file(from)
+}
 /// GUID de `KSDATAFORMAT_SUBTYPE_PCM`.
 const PCM_GUID: [u8; 16] = [
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71,
@@ -119,12 +184,14 @@ pub struct MasterWriter {
     hasher: BlockHasher,
     lsb_or: u32,
     rf64_threshold: u64,
-    last_header: Instant,
+    final_path: PathBuf,
+    confirmed_frames: u64,
 }
 
 impl MasterWriter {
-    /// Crea el master en `path` (nunca sobrescribe). `channels` es el número de canales del flujo
-    /// entrelazado y `pair` el par grabado, desde 0.
+    /// Empieza el master `path`: escribe en `path.partial` y lo renombra a `path` al cerrar. Nunca
+    /// sobrescribe: falla si existe cualquiera de los dos. `channels` es el número de canales del
+    /// flujo entrelazado y `pair` el par grabado, desde 0.
     pub fn create(
         path: &Path,
         format: SampleFormat,
@@ -139,6 +206,14 @@ impl MasterWriter {
                 pair[1] + 1
             )));
         }
+        if path.exists() {
+            return Err(AudioError::io(
+                path,
+                std::io::Error::new(std::io::ErrorKind::AlreadyExists, "el master ya existe"),
+            ));
+        }
+        let final_path = path.to_path_buf();
+        let path = &partial_path(path);
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -146,7 +221,10 @@ impl MasterWriter {
             .map_err(|e| AudioError::io(path, e))?;
         let bytes = format.bytes();
         let mut w = Self {
-            file: BufWriter::with_capacity(1 << 20, file),
+            // Búfer pequeño (≈ 80 ms a 96 kHz en 32 bits): el audio llega al archivo casi al
+            // momento, así que tras un cierre de golpe se sabe cuánto se capturó después de la
+            // última confirmación.
+            file: BufWriter::with_capacity(WRITE_BUFFER, file),
             path: path.to_path_buf(),
             format,
             rate,
@@ -158,7 +236,8 @@ impl MasterWriter {
             hasher: BlockHasher::new(HASH_BLOCK_BYTES),
             lsb_or: 0,
             rf64_threshold: u64::from(u32::MAX),
-            last_header: Instant::now(),
+            final_path,
+            confirmed_frames: 0,
         };
         let header = w.header();
         w.file
@@ -209,9 +288,6 @@ impl MasterWriter {
             self.data_bytes += out.len() as u64;
             self.out = out;
         }
-        if self.last_header.elapsed() >= HEADER_REFRESH {
-            self.refresh_header()?;
-        }
         Ok(())
     }
 
@@ -229,43 +305,36 @@ impl MasterWriter {
         self.data_bytes + RIFF_OVERHEAD > self.rf64_threshold
     }
 
+    /// Ruta del archivo en curso (`.partial`).
+    pub fn partial(&self) -> &Path {
+        &self.path
+    }
+
+    /// Ruta final del master.
+    pub fn final_path(&self) -> &Path {
+        &self.final_path
+    }
+
+    /// Frames confirmados en el disco en el último [`Self::sync_point`].
+    pub fn confirmed_frames(&self) -> u64 {
+        self.confirmed_frames
+    }
+
+    /// Punto de confirmación (T1.6): vuelca el búfer, reescribe la cabecera con el tamaño actual
+    /// y hace `fdatasync`. Devuelve los frames que quedan confirmados en el disco. Solo desde el
+    /// hilo escritor.
+    pub fn sync_point(&mut self) -> Result<u64, AudioError> {
+        self.refresh_header()?;
+        self.file
+            .get_ref()
+            .sync_data()
+            .map_err(|e| AudioError::io(&self.path, e))?;
+        self.confirmed_frames = self.frames();
+        Ok(self.confirmed_frames)
+    }
+
     fn header(&self) -> [u8; HEADER_LEN as usize] {
-        let mut h = [0u8; HEADER_LEN as usize];
-        let rf64 = self.is_rf64();
-        let riff = self.data_bytes + RIFF_OVERHEAD;
-        let bits = self.format.bits();
-        let block_align = 2 * self.format.bytes() as u16;
-        h[0..4].copy_from_slice(if rf64 { b"RF64" } else { b"RIFF" });
-        h[4..8].copy_from_slice(&(if rf64 { u32::MAX } else { riff as u32 }).to_le_bytes());
-        h[8..12].copy_from_slice(b"WAVE");
-        h[12..16].copy_from_slice(if rf64 { b"ds64" } else { b"JUNK" });
-        h[16..20].copy_from_slice(&28u32.to_le_bytes());
-        if rf64 {
-            h[20..28].copy_from_slice(&riff.to_le_bytes());
-            h[28..36].copy_from_slice(&self.data_bytes.to_le_bytes());
-            h[36..44].copy_from_slice(&self.frames().to_le_bytes());
-            // 44..48: tabla de chunks vacía.
-        }
-        h[48..52].copy_from_slice(b"fmt ");
-        h[52..56].copy_from_slice(&40u32.to_le_bytes());
-        h[56..58].copy_from_slice(&0xFFFEu16.to_le_bytes());
-        h[58..60].copy_from_slice(&2u16.to_le_bytes());
-        h[60..64].copy_from_slice(&self.rate.to_le_bytes());
-        h[64..68].copy_from_slice(&(self.rate * u32::from(block_align)).to_le_bytes());
-        h[68..70].copy_from_slice(&block_align.to_le_bytes());
-        h[70..72].copy_from_slice(&bits.to_le_bytes());
-        h[72..74].copy_from_slice(&22u16.to_le_bytes());
-        h[74..76].copy_from_slice(&bits.to_le_bytes());
-        h[76..80].copy_from_slice(&3u32.to_le_bytes());
-        h[80..96].copy_from_slice(&PCM_GUID);
-        h[96..100].copy_from_slice(b"data");
-        let data = if rf64 {
-            u32::MAX
-        } else {
-            self.data_bytes as u32
-        };
-        h[100..104].copy_from_slice(&data.to_le_bytes());
-        h
+        header_bytes(self.format, self.rate, self.data_bytes, self.rf64_threshold)
     }
 
     /// Reescribe la cabecera con los tamaños actuales.
@@ -278,19 +347,25 @@ impl MasterWriter {
         f.seek(SeekFrom::Start(0)).map_err(io)?;
         f.write_all(&h).map_err(io)?;
         f.seek(SeekFrom::End(0)).map_err(io)?;
-        self.last_header = Instant::now();
         Ok(())
     }
 
-    /// Cierra el master: cabecera definitiva, `fsync` y solo lectura. Un frame a medias al final
-    /// (no debería pasar) se descarta.
+    /// Cierra el master: cabecera definitiva, `fsync`, renombrado de `.partial` al nombre final
+    /// (sin sobrescribir) y solo lectura. Un frame a medias al final (no debería pasar) se
+    /// descarta.
     pub fn finalize(mut self) -> Result<MasterSummary, AudioError> {
         self.refresh_header()?;
-        let path = self.path.clone();
-        let io = |e| AudioError::io(&path, e);
+        let partial = self.path.clone();
+        let io = |e| AudioError::io(&partial, e);
         self.file.flush().map_err(io)?;
         self.file.get_ref().sync_all().map_err(io)?;
-        digityzer_project::set_read_only(&path).map_err(io)?;
+        let path = self.final_path.clone();
+        rename_no_overwrite(&partial, &path).map_err(|e| AudioError::io(&path, e))?;
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            // El renombrado también debe llegar al disco.
+            let _ = File::open(dir).and_then(|d| d.sync_all());
+        }
+        digityzer_project::set_read_only(&path).map_err(|e| AudioError::io(&path, e))?;
         let rf64 = self.is_rf64();
         let frames = self.frames();
         let bits = u32::from(self.format.bits());

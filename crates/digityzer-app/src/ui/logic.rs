@@ -41,7 +41,11 @@ pub fn master_path(
     exists: impl Fn(&Path) -> bool,
 ) -> PathBuf {
     let base = format!("{} - Cara {}", sanitize(disc), side.letter());
-    let taken = |p: &Path| exists(p) || exists(&digityzer_project::MasterInfo::path_for(p));
+    let taken = |p: &Path| {
+        exists(p)
+            || exists(&digityzer_project::MasterInfo::path_for(p))
+            || exists(&digityzer_audio::wav::partial_path(p))
+    };
     let first = folder.join(format!("{base}.wav"));
     if !taken(&first) {
         return first;
@@ -139,11 +143,12 @@ mod tests {
         let taken: HashSet<PathBuf> = [
             PathBuf::from("/discos/LP - Cara A.wav"),
             PathBuf::from("/discos/LP - Cara A (2).wav.json"),
+            PathBuf::from("/discos/LP - Cara A (3).wav.partial"),
         ]
         .into();
         assert_eq!(
             master_path(dir, "LP", Side::A, |p| taken.contains(p)),
-            Path::new("/discos/LP - Cara A (3).wav")
+            Path::new("/discos/LP - Cara A (4).wav")
         );
         assert_eq!(sanitize("..oculto"), "oculto");
     }

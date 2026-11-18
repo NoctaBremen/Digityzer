@@ -28,6 +28,9 @@
 - **Mide mientras graba**: medidores de pico y RMS con aviso de clipping, espectro en curva suave
   (con nota musical bajo el cursor), barras o cascada, goniómetro con correlación de fase y forma
   de onda.
+- **A prueba de cortes**: si el ordenador se apaga o el programa se cierra grabando, al volver a
+  abrirlo recupera la cara perdiendo como mucho 2 s; si la tarjeta se desconecta, cierra el master
+  limpio y lo marca como interrumpido.
 - **Comprueba**: cada master lleva una huella blake3 por bloques; `verify` dice si ha cambiado un
   solo bit.
 - **Se adapta a tu escritorio**: diez temas de color (Dracula, Catppuccin, Gruvbox, Nord, Tokyo
@@ -38,9 +41,9 @@
 Descarga el AppImage de [Releases](https://github.com/NoctaBremen/Digityzer/releases):
 
 ```bash
-chmod +x Digityzer-v1.1.0-x86_64.AppImage
-./Digityzer-v1.1.0-x86_64.AppImage                 # interfaz
-./Digityzer-v1.1.0-x86_64.AppImage cli probe       # tarjetas y formatos
+chmod +x Digityzer-v1.2.0-x86_64.AppImage
+./Digityzer-v1.2.0-x86_64.AppImage                 # interfaz
+./Digityzer-v1.2.0-x86_64.AppImage cli probe       # tarjetas y formatos
 ```
 
 Arma, graba y para: el **[manual de uso](docs/MANUAL.md)** lo explica todo paso a paso,

@@ -64,6 +64,21 @@ versión 1 se leen como ALSA bit-perfect).
   drena).
 - Cerrar el master (`fsync`) se hace fuera del hilo principal de GTK.
 
+## Grabación a prueba de cortes (T1.6)
+
+- `MasterWriter` escribe en `<master>.partial` con un búfer de 64 KiB y renombra al nombre final
+  (enlace duro + borrado: nunca sobrescribe) al cerrar.
+- El hilo escritor llama cada `SYNC_INTERVAL` (2 s) a `sync_point`: vuelca, reescribe la cabecera
+  y hace `fdatasync`; después guarda `PartialInfo` (ficha del master a medias + frames
+  confirmados + hora) en `<master>.partial.json` de forma atómica. El hilo de captura no toca
+  nada de esto.
+- Error de dispositivo en la captura → el hilo de captura termina con error → la sesión cierra el
+  master con lo que haya y la ficha lleva `interrupted`/`interruption`.
+- `recover.rs`: `find_partials`, `recover` (corta en lo confirmado, rehace la cabecera, huella,
+  `final_name` sin sobrescribir, ficha con `recovered`/`seconds_lost`). La interfaz lo ofrece al
+  abrir y al cambiar de carpeta; el CLI con `recover`.
+- Formato de la ficha: versión 3 (las anteriores se siguen leyendo).
+
 ## Formatos
 
 ### Master WAV/RF64

@@ -97,3 +97,11 @@ ocupado».
 - **Tema**: cambia de tema grabando (todo se recolorea al momento, sin xruns); cierra y abre: se
   mantiene. Se guarda en `~/.config/digityzer/config.toml`.
 - Capturas de referencia de los diez temas: `./Digityzer-…AppImage render-themes capturas/`.
+
+## T1.6 — a prueba de cortes
+
+- Graba una cara y, a mitad, desenchufa el USB de la Xone (o apágala): la ventana avisa de que la
+  grabación se ha interrumpido; el master está cerrado y `verify` dice «correcto».
+- Graba y mata el programa con `kill -9 $(pgrep -f digityzer)`: queda un `.partial`. Vuelve a abrir
+  Digityzer, pulsa **Recuperar** y comprueba con `verify` y en Audacity que lo recuperado suena
+  bien y le faltan como mucho 2 s.

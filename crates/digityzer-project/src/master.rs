@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Versión del formato del JSON (2: capa de audio y `bit_perfect`, versión 1.1).
-pub const MASTER_INFO_VERSION: u32 = 2;
+/// Versión del formato del JSON (2: capa de audio y `bit_perfect`, versión 1.1; 3: grabación
+/// interrumpida o recuperada, T1.6).
+pub const MASTER_INFO_VERSION: u32 = 3;
 
 fn default_backend() -> String {
     "alsa".into()
@@ -116,6 +117,92 @@ pub struct MasterInfo {
     pub hash: AudioHash,
     /// Notas del disco (sello, catálogo, estado…).
     pub notes: String,
+    /// `true` si la grabación no se paró con «Parar» (la tarjeta se apagó o desconectó, o el
+    /// programa se cerró de golpe y se recuperó).
+    #[serde(default)]
+    pub interrupted: bool,
+    /// Por qué se interrumpió.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interruption: Option<String>,
+    /// `true` si el master se recuperó de un `.partial` tras un cierre inesperado.
+    #[serde(default)]
+    pub recovered: bool,
+    /// Estimación de los segundos perdidos al recuperar (lo capturado tras la última
+    /// confirmación).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seconds_lost: Option<f64>,
+}
+
+/// Escribe `bytes` en `path` de forma atómica (temporal en la misma carpeta, `fsync`, rename).
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let res = (|| {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_data()?;
+        fs::rename(&tmp, path)
+    })();
+    if res.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    res
+}
+
+/// Ficha de una grabación en curso (`<master>.partial.json`), reescrita en cada punto de
+/// confirmación. Sirve para recuperar el `.partial` si el programa muere (T1.6). No es la ficha
+/// del master: esa se escribe una sola vez al cerrar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PartialInfo {
+    /// La ficha del master tal como quedaría, con `frames` y la huella aún sin calcular.
+    pub master: MasterInfo,
+    /// Bytes de cada frame del par en el archivo (para cortar).
+    pub block_align: u16,
+    /// Frames confirmados en el disco (`fdatasync` hecho).
+    pub confirmed_frames: u64,
+    /// Cuándo se confirmaron (segundos Unix, con decimales).
+    pub confirmed_unix: f64,
+}
+
+impl PartialInfo {
+    /// Ruta de la ficha de un archivo en curso: `<partial>.json`.
+    pub fn path_for(partial: &Path) -> PathBuf {
+        let mut s = partial.as_os_str().to_owned();
+        s.push(".json");
+        PathBuf::from(s)
+    }
+
+    /// Guarda la ficha de forma atómica.
+    pub fn save(&self, path: &Path) -> Result<(), ProjectError> {
+        let json = serde_json::to_vec_pretty(self).map_err(|source| ProjectError::Json {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        write_atomic(path, &json).map_err(|source| ProjectError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+
+    /// Lee la ficha.
+    pub fn read(path: &Path) -> Result<Self, ProjectError> {
+        let bytes = fs::read(path).map_err(|source| ProjectError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        serde_json::from_slice(&bytes).map_err(|source| ProjectError::Json {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+}
+
+/// Segundos Unix actuales, con decimales.
+pub fn unix_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
 }
 
 impl MasterInfo {
@@ -204,6 +291,10 @@ mod tests {
                 total: "cd".into(),
             },
             notes: "Sello Records CAT-001, cara A".into(),
+            interrupted: false,
+            interruption: None,
+            recovered: false,
+            seconds_lost: None,
         }
     }
 
@@ -221,13 +312,35 @@ mod tests {
     }
 
     #[test]
+    fn ficha_de_progreso_atomica() {
+        let dir = tempfile::tempdir().unwrap();
+        let partial = dir.path().join("cara-a.wav.partial");
+        let p = PartialInfo::path_for(&partial);
+        assert_eq!(p.file_name().unwrap(), "cara-a.wav.partial.json");
+        let mut info = PartialInfo {
+            master: sample(),
+            block_align: 8,
+            confirmed_frames: 0,
+            confirmed_unix: unix_now(),
+        };
+        info.save(&p).unwrap();
+        info.confirmed_frames = 192_000;
+        info.save(&p).unwrap();
+        assert_eq!(PartialInfo::read(&p).unwrap(), info);
+        assert!(!dir.path().join("cara-a.wav.partial.json.tmp").exists());
+    }
+
+    #[test]
     fn json_de_la_version_1_se_lee_como_alsa_bit_perfect() {
         let mut v = serde_json::to_value(sample()).unwrap();
         let o = v.as_object_mut().unwrap();
         o.remove("audio_backend");
         o.remove("bit_perfect");
+        o.remove("interrupted");
+        o.remove("recovered");
         let back: MasterInfo = serde_json::from_value(v).unwrap();
         assert_eq!(back.audio_backend, "alsa");
         assert!(back.bit_perfect);
+        assert!(!back.interrupted && !back.recovered);
     }
 }

@@ -1,4 +1,4 @@
-# Manual de uso de Digityzer 1.1
+# Manual de uso de Digityzer 1.2
 
 <p align="center"><img src="img/icono.png" width="96" alt="Icono de Digityzer"></p>
 
@@ -28,6 +28,7 @@ sigue intacto.
 10. [Temas de color](#10-temas-de-color)
 11. [Los archivos que se generan](#11-los-archivos-que-se-generan)
 12. [Comprobar un master](#12-comprobar-un-master)
+    - [Si el programa se cierra grabando](#si-el-programa-se-cierra-grabando)
 13. [Línea de órdenes](#13-línea-de-órdenes)
 14. [Configuración](#14-configuración)
 15. [Solución de problemas](#15-solución-de-problemas)
@@ -49,19 +50,19 @@ sigue intacto.
 
 ### AppImage (recomendado)
 
-1. Descarga `Digityzer-v1.1.0-x86_64.AppImage` y su `.sha256` de la página de
+1. Descarga `Digityzer-v1.2.0-x86_64.AppImage` y su `.sha256` de la página de
    [releases](https://github.com/NoctaBremen/Digityzer/releases).
 2. Comprueba la descarga y dale permiso de ejecución:
 
    ```bash
-   sha256sum -c Digityzer-v1.1.0-x86_64.AppImage.sha256
-   chmod +x Digityzer-v1.1.0-x86_64.AppImage
+   sha256sum -c Digityzer-v1.2.0-x86_64.AppImage.sha256
+   chmod +x Digityzer-v1.2.0-x86_64.AppImage
    ```
 
 3. Ábrelo con doble clic o desde la terminal:
 
    ```bash
-   ./Digityzer-v1.1.0-x86_64.AppImage
+   ./Digityzer-v1.2.0-x86_64.AppImage
    ```
 
 El AppImage lleva GTK 4 dentro; ALSA (`libasound`) se usa siempre la del sistema, con tu
@@ -272,7 +273,7 @@ secundario de Nord, Tokyo Night y Ayu.
 Para ver todas las gráficas en todos los temas de una vez:
 
 ```bash
-./Digityzer-v1.1.0-x86_64.AppImage render-themes capturas/
+./Digityzer-v1.2.0-x86_64.AppImage render-themes capturas/
 ```
 
 Genera un PNG por tema en `capturas/` con una señal de prueba.
@@ -316,16 +317,46 @@ Si ya existen, se añade ` (2)`, ` (3)`…: **nunca se sobrescribe nada**.
 | `frames_lost_ring` | Frames perdidos porque el disco no daba abasto (debe ser 0) |
 | `hash` | Huella blake3 por bloques de 1 MiB y total del audio |
 | `notes` | Tus notas y la cara |
+| `interrupted`, `interruption` | Si la grabación no terminó con «Parar» y por qué |
+| `recovered`, `seconds_lost` | Si se recuperó de un `.partial` y cuánto se perdió (estimación) |
+
+### Mientras se graba: el archivo `.partial`
+
+Durante la grabación el master se llama `… - Cara A.wav.partial` y tiene al lado
+`… - Cara A.wav.partial.json`. Cada 2 segundos Digityzer confirma en el disco lo grabado (cabecera
+al día y `fdatasync`). Al pulsar **Parar** se renombra a `… - Cara A.wav` y se escribe su ficha.
 
 ## 12. Comprobar un master
 
 Para saber si un master sigue idéntico al día en que se grabó:
 
 ```bash
-./Digityzer-v1.1.0-x86_64.AppImage cli verify "Artista - Título - Cara A.wav"
+./Digityzer-v1.2.0-x86_64.AppImage cli verify "Artista - Título - Cara A.wav"
 ```
 
 Dice «correcto» o qué bloques (de 1 MiB) han cambiado.
+
+### Si el programa se cierra grabando
+
+Si el ordenador se apaga, el programa se cuelga o se mata a mitad de una cara, queda el
+`.partial`. Al volver a abrir Digityzer (o al elegir esa carpeta) aparece este aviso:
+
+![Aviso de grabación sin cerrar](img/recuperar.png)
+
+**Recuperar** corta la grabación en la última muestra confirmada (como mucho se pierden 2 s), rehace
+la cabecera, calcula la huella y la deja como un master normal, con su ficha marcada como
+`"recovered": true` y los segundos perdidos en `seconds_lost`. Lo recuperado es idéntico bit a bit
+a lo que se capturó hasta ese punto. Si ya existe un master con ese nombre, se guarda como
+`… (recuperado).wav`: nunca se sobrescribe nada. Desde la terminal:
+
+```bash
+./Digityzer-v1.2.0-x86_64.AppImage cli recover ~/Música
+```
+
+### Si la tarjeta se apaga o se desconecta
+
+La grabación se cierra sola con todo lo capturado, la ventana avisa y la ficha del master lleva
+`"interrupted": true` y el motivo en `interruption`.
 
 ## 13. Línea de órdenes
 
@@ -336,6 +367,7 @@ Con el AppImage, antepón `cli`; si compilaste, usa `digityzer-cli` directamente
 | `cli probe` | Lista las tarjetas y, por cada `hw:` de captura, formatos, frecuencias y canales; marca los ocupados |
 | `cli record …` | Graba desde la terminal |
 | `cli verify <master>` | Comprueba un master contra su ficha |
+| `cli recover [carpeta\|archivo]` | Recupera grabaciones cortadas de golpe (`.partial`) |
 | `render-themes <carpeta>` | Capturas de referencia de los diez temas |
 | `--version` | Versión y créditos |
 
@@ -358,14 +390,14 @@ digityzer-cli record [OPCIONES] --pair <PAR> <ARCHIVO>
 Ejemplo:
 
 ```bash
-./Digityzer-v1.1.0-x86_64.AppImage cli record --device hw:CARD=USB1,DEV=0 --pair 3-4 \
+./Digityzer-v1.2.0-x86_64.AppImage cli record --device hw:CARD=USB1,DEV=0 --pair 3-4 \
     --notes "Sello, catálogo, cara A" "Disco - Cara A.wav"
 ```
 
 Por PipeWire (fuente predeterminada, no bit-perfect):
 
 ```bash
-./Digityzer-v1.1.0-x86_64.AppImage cli record --backend pipewire --pair 1-2 "Prueba.wav"
+./Digityzer-v1.2.0-x86_64.AppImage cli record --backend pipewire --pair 1-2 "Prueba.wav"
 ```
 
 Ctrl-C para parar: lo capturado hasta ese momento se escribe entero antes de cerrar. Si el
@@ -449,5 +481,5 @@ Mira «Libre» antes de grabar: indica los minutos que caben al formato actual.
 
 ---
 
-Digityzer 1.1 · © 2026 David Gimenez · Licencia MIT ·
+Digityzer 1.2 · © 2026 David Gimenez · Licencia MIT ·
 [github.com/NoctaBremen/Digityzer](https://github.com/NoctaBremen/Digityzer)
