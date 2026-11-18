@@ -1,0 +1,35 @@
+[package]
+name = "audio-core"
+description = "Código compartido con Spector: espectrograma, detección de cortes y falsos hi-res, AIFF con etiquetas y widgets GTK4"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+realfft = { workspace = true }
+lofty = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+gtk4 = { workspace = true, optional = true }
+pangocairo = { workspace = true, optional = true }
+png = { workspace = true, optional = true }
+
+[features]
+# Widget del espectrograma, exportación a PNG y estilo base. Solo lo activa la interfaz, para
+# que el CLI y las bibliotecas no dependan de GTK.
+gtk = ["dep:gtk4", "dep:pangocairo", "dep:png"]
+
+[dev-dependencies]
+digityzer-testkit = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+hound = { workspace = true }
+
+[lints]
+workspace = true

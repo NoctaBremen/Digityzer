@@ -1,0 +1,19 @@
+[package]
+name = "digityzer-testkit"
+description = "Señales sintéticas deterministas y escritores de fixtures para los tests (solo dev)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+hound = { workspace = true }
+realfft = { workspace = true }
+tempfile = { workspace = true }
+rustix = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,63 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/audio-core",
+    "crates/digityzer-testkit",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+repository = "https://github.com/NoctaBremen/Digityzer"
+authors = ["Digityzer contributors"]
+
+# Las crates miembro usan las dependencias con `nombre = { workspace = true }`.
+# Las versiones de las crates compartidas con Spector son las suyas (commit en PROVENANCE.md).
+[workspace.dependencies]
+# Internas
+audio-core = { path = "crates/audio-core" }
+digityzer-testkit = { path = "crates/digityzer-testkit" }
+
+# Audio y DSP
+realfft = "3.5"
+lofty = "0.25"
+
+# Interfaz (límite: GTK 4.14, como Spector)
+gtk4 = { version = "0.11", features = ["v4_14"] }
+pangocairo = "0.22"
+png = "0.18"
+
+# Persistencia
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
+
+# Errores y registro
+thiserror = "2.0"
+tracing = "0.1"
+toml = "1.2"
+
+# Solo tests
+hound = "3.5"
+proptest = "1.12"
+tempfile = "3.27"
+rustix = { version = "1.1", features = ["process"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

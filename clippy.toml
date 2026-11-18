@@ -1,0 +1,3 @@
+# En los tests se permiten unwrap/expect; en el código de producción, no (ver CLAUDE.md §5).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
