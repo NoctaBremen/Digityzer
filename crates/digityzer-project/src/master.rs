@@ -9,8 +9,16 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Versión del formato del JSON.
-pub const MASTER_INFO_VERSION: u32 = 1;
+/// Versión del formato del JSON (2: capa de audio y `bit_perfect`, versión 1.1).
+pub const MASTER_INFO_VERSION: u32 = 2;
+
+fn default_backend() -> String {
+    "alsa".into()
+}
+
+fn default_true() -> bool {
+    true
+}
 
 /// Errores al guardar o leer el JSON del master.
 #[derive(Debug, thiserror::Error)]
@@ -62,7 +70,14 @@ pub struct MasterInfo {
     pub version: u32,
     /// Versión de Digityzer que grabó.
     pub digityzer_version: String,
-    /// Dispositivo ALSA (`hw:…`).
+    /// Capa de audio (`alsa`, `pipewire`, `pulse`, `default` o `sintetico`). Los JSON de la
+    /// versión 1 no la tienen: eran siempre ALSA directo.
+    #[serde(default = "default_backend")]
+    pub audio_backend: String,
+    /// `true` si la captura fue bit-perfect (solo ALSA directo `hw:`).
+    #[serde(default = "default_true")]
+    pub bit_perfect: bool,
+    /// Dispositivo ALSA (`hw:…`, o el PCM del plugin).
     pub device: String,
     /// Nombre de la tarjeta según ALSA.
     pub card_name: String,
@@ -160,6 +175,8 @@ mod tests {
         MasterInfo {
             version: MASTER_INFO_VERSION,
             digityzer_version: "0.1.0".into(),
+            audio_backend: "alsa".into(),
+            bit_perfect: true,
             device: "hw:CARD=USB1,DEV=0".into(),
             card_name: "XONE 96 USB 1".into(),
             sample_rate: 96_000,
@@ -201,5 +218,16 @@ mod tests {
         assert_eq!(MasterInfo::read(&p).unwrap(), info);
         assert!(fs::metadata(&p).unwrap().permissions().readonly());
         assert!(matches!(info.write_new(&p), Err(ProjectError::Io { .. })));
+    }
+
+    #[test]
+    fn json_de_la_version_1_se_lee_como_alsa_bit_perfect() {
+        let mut v = serde_json::to_value(sample()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("audio_backend");
+        o.remove("bit_perfect");
+        let back: MasterInfo = serde_json::from_value(v).unwrap();
+        assert_eq!(back.audio_backend, "alsa");
+        assert!(back.bit_perfect);
     }
 }

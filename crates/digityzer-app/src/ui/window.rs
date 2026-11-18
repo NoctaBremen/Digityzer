@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use audio_core::theme::{THEMES, Theme};
 use digityzer_audio::probe::{CaptureCaps, khz, probe};
 use digityzer_audio::{
-    AlsaRequest, AlsaSource, AudioError, CaptureSource, EngineConfig, RecordingResult,
-    SampleFormat, Session, StreamConfig, SyntheticSource,
+    AlsaRequest, AlsaSource, AudioBackend, AudioError, CaptureSource, EngineConfig,
+    RecordingResult, SampleFormat, Session, StreamConfig, SyntheticSource,
 };
 use digityzer_dsp::LiveSnapshot;
 use gtk4 as gtk;
@@ -48,13 +48,35 @@ pub fn css_for(theme: &Theme) -> String {
 #[derive(Debug, Clone)]
 struct DeviceChoice {
     label: String,
-    /// `None` = origen sintético.
+    /// Capa de audio.
+    backend: AudioBackend,
+    /// En ALSA directo: el `hw:`, o `None` para el origen sintético. En las demás capas no se usa.
     hw: Option<String>,
     channels: u16,
     rates: Vec<u32>,
 }
 
-fn device_choices() -> Vec<DeviceChoice> {
+/// Dispositivos de una capa. ALSA directo: los `hw:` de captura y el origen sintético. Las demás:
+/// una sola entrada, la fuente predeterminada del servidor (o por qué no está disponible).
+fn device_choices(backend: AudioBackend) -> Vec<DeviceChoice> {
+    if backend != AudioBackend::Alsa {
+        let label = if digityzer_audio::backend::available(backend) {
+            format!("Fuente predeterminada de {}", backend.label())
+        } else {
+            format!(
+                "{} no disponible — hace falta {}",
+                backend.label(),
+                backend.install_hint()
+            )
+        };
+        return vec![DeviceChoice {
+            label,
+            backend,
+            hw: None,
+            channels: 2,
+            rates: RATES.to_vec(),
+        }];
+    }
     let mut v = Vec::new();
     for card in probe() {
         for d in card.devices {
@@ -66,6 +88,7 @@ fn device_choices() -> Vec<DeviceChoice> {
                     ..
                 } => v.push(DeviceChoice {
                     label,
+                    backend,
                     hw: Some(d.hw),
                     channels: u16::try_from(channels_max).unwrap_or(2),
                     rates: rates.into_iter().filter(|r| RATES.contains(r)).collect(),
@@ -73,6 +96,7 @@ fn device_choices() -> Vec<DeviceChoice> {
                 // Ocupado o ilegible: se ofrece igual; al armar se dirá por qué no se puede.
                 CaptureCaps::Busy | CaptureCaps::Error(_) => v.push(DeviceChoice {
                     label: format!("{label} — ocupado"),
+                    backend,
                     hw: Some(d.hw),
                     channels: 12,
                     rates: RATES.to_vec(),
@@ -82,6 +106,7 @@ fn device_choices() -> Vec<DeviceChoice> {
     }
     v.push(DeviceChoice {
         label: "Origen sintético (prueba sin la mesa)".into(),
+        backend,
         hw: None,
         channels: SYNTH_CHANNELS,
         rates: RATES.to_vec(),
@@ -102,6 +127,8 @@ fn pairs(channels: u16) -> Vec<[u16; 2]> {
 struct App {
     window: gtk::ApplicationWindow,
     devices: RefCell<Vec<DeviceChoice>>,
+    backend_dd: gtk::DropDown,
+    backend_lbl: gtk::Label,
     device_dd: gtk::DropDown,
     refresh_btn: gtk::Button,
     pair_dd: gtk::DropDown,
@@ -213,6 +240,8 @@ pub fn build(app: &gtk::Application) {
     let app_state = Rc::new(App {
         window: window.clone(),
         devices: RefCell::new(Vec::new()),
+        backend_dd: gtk::DropDown::from_strings(&AudioBackend::ALL.map(AudioBackend::label)),
+        backend_lbl: gtk::Label::builder().xalign(0.0).build(),
         device_dd: gtk::DropDown::from_strings(&[]),
         refresh_btn: gtk::Button::from_icon_name("view-refresh-symbolic"),
         pair_dd: gtk::DropDown::from_strings(&[]),
@@ -375,31 +404,34 @@ pub fn build(app: &gtk::Application) {
         .row_spacing(8)
         .column_spacing(10)
         .build();
-    grid.attach(&label("Dispositivo"), 0, 0, 1, 1);
+    grid.attach(&label("Capa"), 0, 0, 1, 1);
+    grid.attach(&a.backend_dd, 1, 0, 1, 1);
+    grid.attach(&a.backend_lbl, 2, 0, 6, 1);
+    grid.attach(&label("Dispositivo"), 0, 1, 1, 1);
     let dev_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     dev_box.append(&a.device_dd);
     dev_box.append(&a.refresh_btn);
-    grid.attach(&dev_box, 1, 0, 3, 1);
-    grid.attach(&label("Par"), 4, 0, 1, 1);
-    grid.attach(&a.pair_dd, 5, 0, 1, 1);
-    grid.attach(&label("Frecuencia"), 6, 0, 1, 1);
-    grid.attach(&a.rate_dd, 7, 0, 1, 1);
-    grid.attach(&label("Carpeta"), 0, 1, 1, 1);
-    grid.attach(&a.folder_btn, 1, 1, 1, 1);
-    grid.attach(&label("Disco"), 2, 1, 1, 1);
-    grid.attach(&a.disc_entry, 3, 1, 1, 1);
+    grid.attach(&dev_box, 1, 1, 3, 1);
+    grid.attach(&label("Par"), 4, 1, 1, 1);
+    grid.attach(&a.pair_dd, 5, 1, 1, 1);
+    grid.attach(&label("Frecuencia"), 6, 1, 1, 1);
+    grid.attach(&a.rate_dd, 7, 1, 1, 1);
+    grid.attach(&label("Carpeta"), 0, 2, 1, 1);
+    grid.attach(&a.folder_btn, 1, 2, 1, 1);
+    grid.attach(&label("Disco"), 2, 2, 1, 1);
+    grid.attach(&a.disc_entry, 3, 2, 1, 1);
     let sides = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .css_classes(["linked"])
         .build();
     sides.append(&a.side_a);
     sides.append(&a.side_b);
-    grid.attach(&label("Cara"), 4, 1, 1, 1);
-    grid.attach(&sides, 5, 1, 3, 1);
-    grid.attach(&label("Notas"), 0, 2, 1, 1);
-    grid.attach(&a.notes_entry, 1, 2, 3, 1);
-    grid.attach(&label("Tema"), 4, 2, 1, 1);
-    grid.attach(&a.theme_dd, 5, 2, 3, 1);
+    grid.attach(&label("Cara"), 4, 2, 1, 1);
+    grid.attach(&sides, 5, 2, 3, 1);
+    grid.attach(&label("Notas"), 0, 3, 1, 1);
+    grid.attach(&a.notes_entry, 1, 3, 3, 1);
+    grid.attach(&label("Tema"), 4, 3, 1, 1);
+    grid.attach(&a.theme_dd, 5, 3, 3, 1);
 
     let transport = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     transport.append(&a.arm_btn);
@@ -443,6 +475,12 @@ pub fn build(app: &gtk::Application) {
     window.set_child(Some(&root));
 
     // Señales.
+    {
+        let b =
+            AudioBackend::from_id(&a.config.borrow().audio_backend).unwrap_or(AudioBackend::Alsa);
+        let i = AudioBackend::ALL.iter().position(|&x| x == b).unwrap_or(0);
+        a.backend_dd.set_selected(i as u32);
+    }
     a.reload_devices();
     {
         let s = Rc::clone(a);
@@ -450,6 +488,12 @@ pub fn build(app: &gtk::Application) {
             .connect_selected_notify(move |_| s.device_changed());
         let s = Rc::clone(a);
         a.refresh_btn.connect_clicked(move |_| s.reload_devices());
+        let s = Rc::clone(a);
+        a.backend_dd.connect_selected_notify(move |_| {
+            s.config.borrow_mut().audio_backend = s.backend().id().into();
+            s.config.borrow().save();
+            s.reload_devices();
+        });
         let s = Rc::clone(a);
         a.theme_dd
             .connect_selected_notify(move |dd| s.set_theme(dd.selected() as usize));
@@ -513,8 +557,28 @@ impl App {
         self.update_free_space();
     }
 
+    /// Capa de audio elegida.
+    fn backend(&self) -> AudioBackend {
+        AudioBackend::ALL[(self.backend_dd.selected() as usize).min(AudioBackend::ALL.len() - 1)]
+    }
+
     fn reload_devices(&self) {
-        let devices = device_choices();
+        let backend = self.backend();
+        for c in ["status-ok", "status-warn"] {
+            self.backend_lbl.remove_css_class(c);
+        }
+        if backend.bit_perfect() {
+            self.backend_lbl
+                .set_label("Bit-perfect: hw: en exclusiva, formato nativo, sin remuestreo");
+            self.backend_lbl.add_css_class("status-ok");
+        } else {
+            self.backend_lbl.set_label(
+                "No bit-perfect: graba la fuente predeterminada del servidor, que puede \
+                 remuestrear o mezclar",
+            );
+            self.backend_lbl.add_css_class("status-warn");
+        }
+        let devices = device_choices(backend);
         let labels: Vec<&str> = devices.iter().map(|d| d.label.as_str()).collect();
         self.device_dd
             .set_model(Some(&gtk::StringList::new(&labels)));
@@ -574,6 +638,7 @@ impl App {
     fn set_armed_ui(&self, armed: bool) {
         for w in [
             self.device_dd.upcast_ref::<gtk::Widget>(),
+            self.backend_dd.upcast_ref(),
             self.refresh_btn.upcast_ref(),
             self.pair_dd.upcast_ref(),
             self.rate_dd.upcast_ref(),
@@ -589,6 +654,7 @@ impl App {
     fn set_recording_ui(&self, recording: bool) {
         if !recording {
             self.status_lbl.remove_css_class("status-ok");
+            self.status_lbl.remove_css_class("status-warn");
             self.status_lbl.remove_css_class("status-clip");
             self.status_lbl.add_css_class("dim-label");
         }
@@ -617,9 +683,11 @@ impl App {
         d: &DeviceChoice,
         rate: u32,
     ) -> Result<Box<dyn CaptureSource>, AudioError> {
-        Ok(match &d.hw {
-            Some(hw) => Box::new(AlsaSource::open(&AlsaRequest::new(hw.clone(), rate, None))?),
-            None => Box::new(
+        Ok(match (d.backend, &d.hw) {
+            (AudioBackend::Alsa, Some(hw)) => {
+                Box::new(AlsaSource::open(&AlsaRequest::new(hw.clone(), rate, None))?)
+            }
+            (AudioBackend::Alsa, None) => Box::new(
                 SyntheticSource::new(StreamConfig {
                     rate,
                     format: SampleFormat::S32Le,
@@ -628,6 +696,7 @@ impl App {
                 })
                 .realtime(),
             ),
+            (b, _) => Box::new(AlsaSource::open(&AlsaRequest::plugin(b, rate, None))?),
         })
     }
 
@@ -667,13 +736,18 @@ impl App {
             Ok(s) => {
                 let cfg = s.config();
                 self.status_lbl.set_label(&format!(
-                    "Armado: {} · {} · {} · {} canales · par {}–{}",
+                    "Armado: {} · {} · {} · {} canales · par {}–{}{}",
                     s.card_name(),
                     khz(cfg.rate),
                     cfg.format,
                     cfg.channels,
                     pair[0],
-                    pair[1]
+                    pair[1],
+                    if s.backend().bit_perfect() {
+                        ""
+                    } else {
+                        " · no bit-perfect"
+                    }
                 ));
                 *self.session.borrow_mut() = Some(s);
                 self.clip_base.set([0, 0]);
@@ -764,7 +838,17 @@ impl App {
                     i.container,
                     xr
                 ));
-                if !i.xruns.is_empty() || i.frames_lost_ring > 0 {
+                if i.frames == 0 {
+                    self.alert(
+                        "No ha llegado audio",
+                        &format!(
+                            "La grabación está vacía: {} no ha dado ninguna muestra. Comprueba la \
+                             fuente (en PipeWire o PulseAudio, la predeterminada del servidor) y que \
+                             el servidor esté en marcha.",
+                            i.card_name
+                        ),
+                    );
+                } else if !i.xruns.is_empty() || i.frames_lost_ring > 0 {
                     self.alert(
                         "La grabación tiene huecos",
                         &format!(
@@ -877,17 +961,29 @@ impl App {
             self.update_free_space();
             if status.recording {
                 // Estado «grabando sin xruns» en ok; con huecos, en clip.
+                // Sin cortes y bit-perfect en ok; sin cortes por otra capa en aviso; con huecos,
+                // en clip.
                 let bad = status.xruns > 0 || status.frames_lost > 0;
-                self.status_lbl.remove_css_class("dim-label");
-                self.status_lbl
-                    .remove_css_class(if bad { "status-ok" } else { "status-clip" });
-                self.status_lbl
-                    .add_css_class(if bad { "status-clip" } else { "status-ok" });
+                let exact = self
+                    .session
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|s| s.backend().bit_perfect());
+                let class = match (bad, exact) {
+                    (true, _) => "status-clip",
+                    (false, true) => "status-ok",
+                    (false, false) => "status-warn",
+                };
+                for c in ["dim-label", "status-ok", "status-warn", "status-clip"] {
+                    self.status_lbl.remove_css_class(c);
+                }
+                self.status_lbl.add_css_class(class);
                 self.status_lbl.set_label(&format!(
-                    "Grabando · xruns {} · perdidos {} · tiempo real: {}",
+                    "Grabando · xruns {} · perdidos {} · tiempo real: {}{}",
                     status.xruns,
                     status.frames_lost,
-                    if status.realtime { "sí" } else { "no" }
+                    if status.realtime { "sí" } else { "no" },
+                    if exact { "" } else { " · no bit-perfect" }
                 ));
             }
         }
@@ -925,7 +1021,7 @@ mod tests {
 
     #[test]
     fn siempre_hay_origen_sintetico() {
-        let d = device_choices();
+        let d = device_choices(AudioBackend::Alsa);
         assert!(
             d.last()
                 .is_some_and(|d| d.hw.is_none() && d.channels == SYNTH_CHANNELS)

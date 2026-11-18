@@ -19,7 +19,9 @@
 ## Qué hace
 
 - **Graba sin tocar la señal**: dispositivo `hw:` en exclusiva, formato nativo de la tarjeta y
-  frecuencia exacta. Sin `plughw`, sin remuestreo, sin PipeWire, PulseAudio ni JACK.
+  frecuencia exacta. Sin `plughw` ni remuestreo.
+- **Elige la capa de audio**: ALSA directo (bit-perfect, por defecto), PipeWire, PulseAudio o el
+  predeterminado de ALSA; las tres últimas se avisan como no bit-perfect.
 - **Nunca pierde ni sobrescribe**: el hilo de captura tiene prioridad de tiempo real y no se
   bloquea; los cortes de ALSA (xruns) se anotan con su instante; el master y su ficha quedan en
   solo lectura.
@@ -36,9 +38,9 @@
 Descarga el AppImage de [Releases](https://github.com/NoctaBremen/Digityzer/releases):
 
 ```bash
-chmod +x Digityzer-v1.0.0-x86_64.AppImage
-./Digityzer-v1.0.0-x86_64.AppImage                 # interfaz
-./Digityzer-v1.0.0-x86_64.AppImage cli probe       # tarjetas y formatos
+chmod +x Digityzer-v1.1.0-x86_64.AppImage
+./Digityzer-v1.1.0-x86_64.AppImage                 # interfaz
+./Digityzer-v1.1.0-x86_64.AppImage cli probe       # tarjetas y formatos
 ```
 
 Arma, graba y para: el **[manual de uso](docs/MANUAL.md)** lo explica todo paso a paso,

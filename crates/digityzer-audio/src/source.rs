@@ -3,6 +3,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::backend::AudioBackend;
 use crate::error::AudioError;
 use crate::format::SampleFormat;
 
@@ -46,6 +47,10 @@ pub trait CaptureSource: Send {
     fn device(&self) -> &str;
     /// Nombre legible de la tarjeta.
     fn card_name(&self) -> &str;
+    /// Capa de audio (por defecto, ALSA directo).
+    fn backend(&self) -> AudioBackend {
+        AudioBackend::Alsa
+    }
     /// Arranca la captura.
     fn start(&mut self) -> Result<(), AudioError>;
     /// Lee hasta `buf.len() / frame_bytes` frames entrelazados en `buf`.

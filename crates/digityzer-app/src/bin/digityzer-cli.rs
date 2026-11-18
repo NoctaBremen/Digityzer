@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use digityzer_audio::probe::{format_report, khz, probe};
+use digityzer_audio::probe::{format_backends, format_report, khz, probe, probe_backends};
 use digityzer_audio::{
-    AlsaRequest, AlsaSource, AudioError, CaptureSource, EngineConfig, RecordRequest, RecordStatus,
-    Recorder, SampleFormat, StreamConfig, SyntheticSource, verify_master,
+    AlsaRequest, AlsaSource, AudioBackend, AudioError, CaptureSource, EngineConfig, RecordRequest,
+    RecordStatus, Recorder, SampleFormat, StreamConfig, SyntheticSource, verify_master,
 };
 
 /// Digitalizador de vinilo bit-perfect (línea de órdenes).
@@ -36,8 +36,11 @@ enum Command {
     Record {
         /// Archivo del master (no debe existir).
         out: PathBuf,
-        /// Dispositivo ALSA hw: (ver `probe`), p. ej. hw:CARD=USB1,DEV=0.
-        #[arg(short, long, required_unless_present = "simulate")]
+        /// Capa de audio: alsa (hw: directo, bit-perfect), pipewire, pulse o default.
+        #[arg(short, long, default_value = "alsa", value_parser = parse_backend)]
+        backend: AudioBackend,
+        /// Dispositivo ALSA hw: (ver `probe`), p. ej. hw:CARD=USB1,DEV=0. Solo con --backend alsa.
+        #[arg(short, long)]
         device: Option<String>,
         /// Par de canales, numerados desde 1 como en la mesa (plato A: 3-4, plato B: 5-6).
         #[arg(short, long, value_parser = parse_pair)]
@@ -83,6 +86,11 @@ fn parse_pair(s: &str) -> Result<[u16; 2], String> {
     Ok([a, b])
 }
 
+fn parse_backend(s: &str) -> Result<AudioBackend, String> {
+    AudioBackend::from_id(s)
+        .ok_or_else(|| format!("«{s}»: capas posibles: alsa, pipewire, pulse, default"))
+}
+
 fn parse_format(s: &str) -> Result<SampleFormat, String> {
     SampleFormat::from_alsa_name(s).ok_or_else(|| {
         format!("«{s}»: formatos que se graban sin convertir: S32_LE, S24_3LE, S16_LE")
@@ -115,6 +123,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Probe => {
             print!("{}", format_report(&probe()));
+            println!();
+            print!("{}", format_backends(&probe_backends()));
             Ok(ExitCode::SUCCESS)
         }
         Command::Verify { master } => {
@@ -136,6 +146,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Record {
             out,
+            backend,
             device,
             pair,
             rate,
@@ -143,13 +154,16 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             notes,
             duration,
             simulate,
-        } => record(out, device, pair, rate, format, notes, duration, simulate),
+        } => record(
+            out, backend, device, pair, rate, format, notes, duration, simulate,
+        ),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn record(
     out: PathBuf,
+    backend: AudioBackend,
     device: Option<String>,
     pair: [u16; 2],
     rate: u32,
@@ -168,11 +182,25 @@ fn record(
             })
             .realtime(),
         )
-    } else {
+    } else if backend == AudioBackend::Alsa {
         let Some(device) = device else {
-            bail!("falta --device (ver `digityzer-cli probe`)");
+            bail!("falta --device (ver `digityzer-cli probe`), o elige otra capa con --backend");
         };
         Box::new(AlsaSource::open(&AlsaRequest::new(device, rate, format))?)
+    } else {
+        if device.is_some() {
+            bail!(
+                "--device solo vale con --backend alsa; {backend} graba su fuente predeterminada"
+            );
+        }
+        eprintln!(
+            "Aviso: {} no es bit-perfect: el servidor de sonido puede remuestrear o mezclar. \
+             Para un master bit-perfect usa --backend alsa.",
+            backend.label()
+        );
+        Box::new(AlsaSource::open(&AlsaRequest::plugin(
+            backend, rate, format,
+        ))?)
     };
     let cfg = source.config();
     eprintln!(
@@ -238,6 +266,13 @@ fn record(
         i.frames_lost_ring,
         if i.realtime { "sí" } else { "no" }
     );
+    if i.frames == 0 {
+        eprintln!(
+            "Aviso: no ha llegado audio de {}. Comprueba la fuente (en PipeWire o PulseAudio, la \
+             predeterminada del servidor) y que el servidor esté en marcha.",
+            r.info.card_name
+        );
+    }
     if let Some(e) = r.capture_error {
         eprintln!("La captura se cortó: {e}. Lo grabado hasta ahí está guardado.");
         return Ok(ExitCode::FAILURE);
@@ -283,6 +318,8 @@ mod tests {
         assert!(parse_pair("4-4").is_err());
         assert_eq!(parse_format("s24_3le").unwrap(), SampleFormat::S24_3Le);
         assert!(parse_format("S24_LE").is_err());
+        assert_eq!(parse_backend("pipewire").unwrap(), AudioBackend::PipeWire);
+        assert!(parse_backend("jack").is_err());
     }
 
     #[test]

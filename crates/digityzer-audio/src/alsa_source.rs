@@ -4,6 +4,7 @@
 use alsa::pcm::{Access, Format, HwParams, PCM};
 use alsa::{Direction, ValueOr};
 
+use crate::backend::AudioBackend;
 use crate::error::{AudioError, errno_of};
 use crate::format::SampleFormat;
 use crate::source::{CaptureSource, ReadOutcome, StreamConfig};
@@ -11,6 +12,9 @@ use crate::source::{CaptureSource, ReadOutcome, StreamConfig};
 /// `errno` de xrun (EPIPE) y de suspensión (ESTRPIPE).
 const EPIPE: i32 = 32;
 const ESTRPIPE: i32 = 86;
+
+/// Tope de espera de datos en cada lectura (ms).
+pub const READ_WAIT_MS: u32 = 200;
 
 /// Frames por período pedidos a ALSA (≈ 10 ms a 96 kHz).
 pub const DEFAULT_PERIOD_FRAMES: usize = 1024;
@@ -40,7 +44,9 @@ pub fn card_name(device: &str) -> String {
 /// Lo que se pide al abrir.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlsaRequest {
-    /// Dispositivo; debe empezar por `hw:`.
+    /// Capa de audio.
+    pub backend: AudioBackend,
+    /// Dispositivo; en ALSA directo debe empezar por `hw:`. En las demás capas no se usa.
     pub device: String,
     /// Frecuencia exacta (Hz).
     pub rate: u32,
@@ -54,7 +60,21 @@ impl AlsaRequest {
     /// Petición con período por defecto.
     pub fn new(device: impl Into<String>, rate: u32, format: Option<SampleFormat>) -> Self {
         Self {
+            backend: AudioBackend::Alsa,
             device: device.into(),
+            rate,
+            format,
+            period_frames: DEFAULT_PERIOD_FRAMES,
+        }
+    }
+}
+
+impl AlsaRequest {
+    /// Petición por una capa por plugin (PipeWire, PulseAudio o `default`).
+    pub fn plugin(backend: AudioBackend, rate: u32, format: Option<SampleFormat>) -> Self {
+        Self {
+            backend,
+            device: backend.pcm_name().unwrap_or("default").to_string(),
             rate,
             format,
             period_frames: DEFAULT_PERIOD_FRAMES,
@@ -64,6 +84,7 @@ impl AlsaRequest {
 
 /// Origen ALSA abierto y configurado.
 pub struct AlsaSource {
+    backend: AudioBackend,
     pcm: PCM,
     device: String,
     card_name: String,
@@ -113,19 +134,35 @@ pub fn choose_format(
 impl AlsaSource {
     /// Abre el dispositivo en exclusiva y lo configura. `EBUSY` → [`AudioError::Busy`] (T1.5).
     pub fn open(req: &AlsaRequest) -> Result<Self, AudioError> {
-        if !req.device.starts_with("hw:") {
+        let plugin = req.backend.pcm_name();
+        if plugin.is_none() && !req.device.starts_with("hw:") {
             return Err(AudioError::Invalid(format!(
-                "«{}» no es un dispositivo hw:; solo se graba en hw: para ser bit-perfect",
+                "«{}» no es un dispositivo hw:; en ALSA directo solo se graba en hw: para ser \
+                 bit-perfect",
                 req.device
             )));
         }
-        let name = card_name(&req.device);
+        let device = plugin.map_or_else(|| req.device.clone(), str::to_string);
+        let name = match plugin {
+            None => card_name(&device),
+            Some(_) => req.backend.source_name().to_string(),
+        };
         let err = |ctx: &str| {
-            let (d, n) = (req.device.clone(), name.clone());
+            let (d, n) = (device.clone(), name.clone());
             let ctx = ctx.to_string();
             move |e| AudioError::from_alsa(ctx, &d, &n, e)
         };
-        let pcm = PCM::new(&req.device, Direction::Capture, false).map_err(err("abrir"))?;
+        let pcm = match PCM::new(&device, Direction::Capture, false) {
+            Ok(p) => p,
+            Err(e) if plugin.is_some() => {
+                return Err(AudioError::Unsupported(format!(
+                    "la capa {} no está disponible ({e}). Hace falta {}",
+                    req.backend.label(),
+                    req.backend.install_hint()
+                )));
+            }
+            Err(e) => return Err(err("abrir")(e)),
+        };
         let config = {
             let hwp = HwParams::any(&pcm).map_err(err("leer parámetros"))?;
             hwp.set_access(Access::RWInterleaved)
@@ -136,7 +173,13 @@ impl AlsaSource {
                 hwp.test_format(Format::S24LE).is_ok(),
             )?;
             hwp.set_format(format.to_alsa()).map_err(err("formato"))?;
-            let channels = hwp.get_channels_max().map_err(err("canales"))?;
+            // ALSA directo: todos los canales de la interfaz. Por plugin: estéreo, la fuente
+            // predeterminada del servidor.
+            let channels = if plugin.is_some() && hwp.test_channels(2).is_ok() {
+                2
+            } else {
+                hwp.get_channels_max().map_err(err("canales"))?
+            };
             hwp.set_channels(channels).map_err(err("canales"))?;
             if hwp.test_rate(req.rate).is_err() {
                 return Err(AudioError::Unsupported(format!(
@@ -170,8 +213,9 @@ impl AlsaSource {
             }
         };
         Ok(Self {
+            backend: req.backend,
             pcm,
-            device: req.device.clone(),
+            device,
             card_name: name,
             config,
         })
@@ -191,6 +235,10 @@ impl CaptureSource for AlsaSource {
         &self.card_name
     }
 
+    fn backend(&self) -> AudioBackend {
+        self.backend
+    }
+
     fn start(&mut self) -> Result<(), AudioError> {
         self.pcm.prepare().map_err(|e| AudioError::Alsa {
             context: "preparar".into(),
@@ -205,6 +253,21 @@ impl CaptureSource for AlsaSource {
     fn read(&mut self, buf: &mut [u8]) -> Result<ReadOutcome, AudioError> {
         let fb = self.config.frame_bytes();
         let frames = (buf.len() / fb).min(self.config.period_frames);
+        // Espera con tope (un `poll`, sin reservas): si el origen deja de dar datos (un servidor
+        // de sonido parado, una tarjeta colgada), el hilo vuelve a mirar la orden de parar en vez
+        // de quedarse bloqueado en `readi` para siempre.
+        match self.pcm.wait(Some(READ_WAIT_MS)) {
+            Ok(false) => return Ok(ReadOutcome::Frames(0)),
+            Ok(true) => {}
+            // Un xrun o una suspensión también despiertan a `wait`: los trata `readi` abajo.
+            Err(e) if errno_of(&e) == EPIPE || errno_of(&e) == ESTRPIPE => {}
+            Err(e) => {
+                return Err(AudioError::Alsa {
+                    context: "esperar datos".into(),
+                    source: e,
+                });
+            }
+        }
         let io = self.pcm.io_bytes();
         match io.readi(&mut buf[..frames * fb]) {
             Ok(n) => Ok(ReadOutcome::Frames(n)),

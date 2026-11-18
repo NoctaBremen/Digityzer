@@ -185,6 +185,11 @@ impl Session {
         self.capture.card_name()
     }
 
+    /// Capa de audio.
+    pub fn backend(&self) -> crate::backend::AudioBackend {
+        self.capture.backend()
+    }
+
     /// Última instantánea del análisis (sin locks).
     pub fn snapshot(&mut self) -> &LiveSnapshot {
         self.snapshot.read()
@@ -286,6 +291,12 @@ impl Session {
         MasterInfo {
             version: MASTER_INFO_VERSION,
             digityzer_version: crate::VERSION.to_string(),
+            audio_backend: if self.capture.device() == "sintético" {
+                "sintetico".into()
+            } else {
+                self.capture.backend().id().into()
+            },
+            bit_perfect: self.capture.backend().bit_perfect(),
             device: self.capture.device().to_string(),
             card_name: self.capture.card_name().to_string(),
             sample_rate: cfg.rate,

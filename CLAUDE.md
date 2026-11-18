@@ -7,16 +7,24 @@ manda este archivo. Uso en `docs/MANUAL.md`, diseño en `docs/ARQUITECTURA.md` y
 ## Qué es
 
 Digitalizador de vinilo en Rust + GTK4 (gtk4-rs) para Arch Linux, Hyprland (Wayland) y kernel
-PREEMPT_RT, **solo ALSA** (sin PipeWire, PulseAudio ni JACK). Captura desde la Xone:96 por USB
-de forma bit-perfect, mide la captura y la cadena mecánica y exporta AIFF.
+PREEMPT_RT. Captura desde la Xone:96 por USB de forma bit-perfect, mide la captura y la cadena
+mecánica y exporta AIFF.
+
+**Capas de audio (decisión del usuario, 1.1):** se puede elegir ALSA directo (`hw:`, por defecto y
+la única bit-perfect), PipeWire, PulseAudio o el `default` de ALSA. Las tres últimas se abren con
+la API de ALSA por los plugins del sistema (`pipewire`, `pulse`, `default`): no se enlazan
+bibliotecas de PipeWire ni de PulseAudio. Graban la fuente predeterminada del servidor en estéreo
+y el master queda marcado `bit_perfect: false` en su JSON. JACK no se ofrece.
 
 ## Reglas que no se rompen
 
 1. **Master intocable**: la captura se escribe tal cual llega de la tarjeta. Cortes, limpieza o
    conversión generan archivos nuevos. El master y sus JSON nunca se abren en escritura después
    de cerrar la grabación.
-2. **Bit-perfect**: dispositivo `hw:` en exclusiva, nunca `plughw`, sin remuestreo ni conversión
-   de formato en la captura. El formato nativo se detecta al abrir y no se convierte.
+2. **Bit-perfect** (capa ALSA directo): dispositivo `hw:` en exclusiva, nunca `plughw`, sin
+   remuestreo ni conversión de formato en la captura. El formato nativo se detecta al abrir y no
+   se convierte. Las otras capas lo avisan en la interfaz y en el JSON; nunca se presentan como
+   bit-perfect.
 3. **Hilo de captura**: solo lee de ALSA y empuja al ring buffer (`rtrb`). Nada que bloquee
    (E/S, locks, asignaciones grandes, registro) corre en él. Si la interfaz se atasca se pierden
    fotogramas de los medidores, nunca muestras del master.

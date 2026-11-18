@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
+use crate::backend::AudioBackend;
 use crate::error::AudioError;
 use crate::source::{CaptureSource, ReadOutcome, StreamConfig};
 
@@ -82,6 +83,7 @@ pub struct Capture {
     config: StreamConfig,
     device: String,
     card_name: String,
+    backend: AudioBackend,
 }
 
 /// Extremos de lectura de una captura: audio entrelazado y eventos.
@@ -117,6 +119,7 @@ impl Capture {
         let counters = Arc::new(CaptureCounters::default());
         let device = source.device().to_string();
         let card_name = source.card_name().to_string();
+        let backend = source.backend();
 
         let (stop_t, counters_t) = (Arc::clone(&stop), Arc::clone(&counters));
         let thread = std::thread::Builder::new()
@@ -175,6 +178,7 @@ impl Capture {
                 config,
                 device,
                 card_name,
+                backend,
             },
             CaptureOutputs {
                 audio,
@@ -197,6 +201,11 @@ impl Capture {
     /// Nombre de la tarjeta.
     pub fn card_name(&self) -> &str {
         &self.card_name
+    }
+
+    /// Capa de audio.
+    pub fn backend(&self) -> AudioBackend {
+        self.backend
     }
 
     /// Contadores en vivo.

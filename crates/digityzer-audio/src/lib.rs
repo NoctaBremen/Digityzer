@@ -6,9 +6,11 @@
 //! - [`wav`] y [`recorder`]: master WAV/RF64 con el formato nativo, JSON y huella por bloques
 //!   (T1.3), parada sin perder datos (T1.4).
 //! - [`error::AudioError::Busy`]: dispositivo ocupado con un mensaje claro (T1.5).
+//! - [`backend`]: capa de audio: ALSA directo (bit-perfect), PipeWire, PulseAudio o `default`.
 //! - [`source::SyntheticSource`]: origen sintético para los tests y para probar sin la mesa.
 
 pub mod alsa_source;
+pub mod backend;
 pub mod engine;
 pub mod error;
 pub mod format;
@@ -18,6 +20,7 @@ pub mod source;
 pub mod wav;
 
 pub use alsa_source::{AlsaRequest, AlsaSource};
+pub use backend::AudioBackend;
 pub use engine::{Capture, CaptureEvent, EngineConfig};
 pub use error::AudioError;
 pub use format::SampleFormat;

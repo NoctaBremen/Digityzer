@@ -1,5 +1,25 @@
 # Cambios
 
+## 1.1.0 — 18-11-2026
+
+**Capa de audio elegible**
+- Nueva fila «Capa» en la ventana y `--backend` en `digityzer-cli record`: ALSA directo (por
+  defecto, la única bit-perfect), PipeWire, PulseAudio o el predeterminado de ALSA.
+- PipeWire, PulseAudio y `default` se abren por los plugins de ALSA del sistema (pipewire-alsa,
+  pulseaudio-alsa): sin bibliotecas nuevas. Graban la fuente predeterminada del servidor en
+  estéreo.
+- Aviso «No bit-perfect» en ámbar al elegir la capa, al armar y mientras se graba. La ficha JSON
+  del master guarda `audio_backend` y `bit_perfect` (formato versión 2; los JSON anteriores se
+  siguen leyendo).
+- `cli probe` lista qué capas están disponibles y qué instalar si falta alguna. La capa elegida
+  se recuerda en `config.toml`.
+
+**Robustez**
+- Si el origen deja de dar audio (un servidor de sonido parado, una tarjeta colgada), parar ya no
+  se queda esperando: cada lectura espera como mucho 200 ms y el hilo de captura vuelve a mirar la
+  orden de parar. El master se cierra con lo que haya llegado.
+- Aviso si una grabación termina sin ninguna muestra.
+
 ## 1.0.0 — 18-11-2026
 
 Primera versión estable.

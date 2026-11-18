@@ -16,6 +16,8 @@ pub struct Config {
     pub spectrum_view: String,
     /// Suavizado en fracciones de octava (3, 6 o 12).
     pub smoothing: u32,
+    /// Capa de audio (`alsa`, `pipewire`, `pulse` o `default`).
+    pub audio_backend: String,
 }
 
 impl Default for Config {
@@ -24,6 +26,7 @@ impl Default for Config {
             theme: "dracula".into(),
             spectrum_view: "curva".into(),
             smoothing: 6,
+            audio_backend: "alsa".into(),
         }
     }
 }
@@ -84,6 +87,7 @@ mod tests {
             theme: "nord".into(),
             spectrum_view: "cascada".into(),
             smoothing: 12,
+            audio_backend: "pipewire".into(),
         };
         c.save_to(&p).unwrap();
         assert_eq!(Config::load_from(&p), c);

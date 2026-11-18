@@ -7,8 +7,18 @@ convenciones en [CLAUDE.md](../CLAUDE.md).
 
 1. **Master intocable.** La captura se escribe tal cual llega; el master y su JSON no se vuelven a
    abrir en escritura (se crean con `create_new` y quedan en solo lectura).
-2. **Bit-perfect.** `hw:` en exclusiva, formato nativo, frecuencia exacta; nunca `plughw`, nunca
-   remuestreo ni conversión. Lo que no se puede guardar sin convertir (S24_LE) se rechaza.
+2. **Bit-perfect.** En la capa ALSA directo: `hw:` en exclusiva, formato nativo, frecuencia
+   exacta; nunca `plughw`, nunca remuestreo ni conversión. Lo que no se puede guardar sin
+   convertir (S24_LE) se rechaza.
+
+## Capas de audio (1.1)
+
+`digityzer-audio/src/backend.rs`: `AudioBackend` = `Alsa` (bit-perfect), `PipeWire`, `Pulse` y
+`Default`. Las tres últimas usan el mismo `AlsaSource` abriendo el PCM del plugin del sistema
+(`pipewire`, `pulse`, `default`) en estéreo; no se enlaza libpipewire ni libpulse, así que el
+AppImage no cambia y funciona con el ALSA del sistema. `available()` prueba a abrir el PCM. El
+master guarda `audio_backend` y `bit_perfect` en su JSON (versión 2 del formato; los JSON de la
+versión 1 se leen como ALSA bit-perfect).
 3. **El hilo de captura no se bloquea.** Solo lee de ALSA y copia a ring buffers sin locks. Si
    algo va lento, se pierden fotogramas de los medidores, nunca muestras del master.
 4. **Lógica pura y probada.** DSP, formatos, nombres y escalas son funciones sin GTK ni ALSA,

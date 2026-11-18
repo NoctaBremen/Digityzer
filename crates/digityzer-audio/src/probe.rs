@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use alsa::pcm::{Format, HwParams, PCM};
 use alsa::{Card, Ctl, Direction};
 
+use crate::backend::{AudioBackend, available};
 use crate::error::{EBUSY, errno_of};
 
 /// Frecuencias que se comprueban.
@@ -138,6 +139,30 @@ fn probe_card(card: &Card) -> CardInfo {
     info
 }
 
+/// Disponibilidad de cada capa de audio ahora mismo.
+pub fn probe_backends() -> Vec<(AudioBackend, bool)> {
+    AudioBackend::ALL
+        .into_iter()
+        .map(|b| (b, available(b)))
+        .collect()
+}
+
+/// Texto de las capas de audio para `probe`.
+pub fn format_backends(list: &[(AudioBackend, bool)]) -> String {
+    let mut s = String::from("Capas de audio:\n");
+    for &(b, ok) in list {
+        let state = match (b, ok) {
+            (AudioBackend::Alsa, _) => {
+                "bit-perfect (elige un hw: de la lista de arriba)".to_string()
+            }
+            (_, true) => "disponible (no bit-perfect)".to_string(),
+            (_, false) => format!("no disponible: hace falta {}", b.install_hint()),
+        };
+        let _ = writeln!(s, "  {:<9} {:<26} {state}", b.id(), b.label());
+    }
+    s
+}
+
 /// Frecuencia en kHz con coma decimal (`44,1 kHz`, `96 kHz`).
 pub fn khz(rate: u32) -> String {
     if rate.is_multiple_of(1000) {
@@ -237,6 +262,19 @@ mod tests {
         assert!(r.contains("canales:     12\n"));
         assert!(r.contains("en uso por otro programa"));
         assert_eq!(format_report(&[]), "No hay tarjetas ALSA.\n");
+    }
+
+    #[test]
+    fn informe_de_capas() {
+        let r = format_backends(&[
+            (AudioBackend::Alsa, true),
+            (AudioBackend::PipeWire, true),
+            (AudioBackend::Pulse, false),
+        ]);
+        assert!(r.contains("alsa      ALSA directo (bit-perfect)"), "{r}");
+        assert!(r.contains("pipewire") && r.contains("disponible (no bit-perfect)"));
+        assert!(r.contains("no disponible: hace falta pulseaudio-alsa"));
+        assert_eq!(probe_backends().len(), 4);
     }
 
     #[test]

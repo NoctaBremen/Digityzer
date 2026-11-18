@@ -1,4 +1,4 @@
-# Manual de uso de Digityzer 1.0
+# Manual de uso de Digityzer 1.1
 
 <p align="center"><img src="img/icono.png" width="96" alt="Icono de Digityzer"></p>
 
@@ -18,6 +18,7 @@ sigue intacto.
 1. [Requisitos](#1-requisitos)
 2. [Instalación](#2-instalación)
 3. [Antes de grabar: la cadena de señal](#3-antes-de-grabar-la-cadena-de-señal)
+   - [Capa de audio](#capa-de-audio)
 4. [La ventana principal](#4-la-ventana-principal)
 5. [Grabar una cara paso a paso](#5-grabar-una-cara-paso-a-paso)
 6. [Medidores de nivel](#6-medidores-de-nivel)
@@ -39,7 +40,7 @@ sigue intacto.
 | Qué | Detalle |
 |---|---|
 | Sistema | Linux x86_64. Pensado para Arch Linux con Hyprland (Wayland) y kernel PREEMPT_RT |
-| Audio | Solo ALSA (`alsa-lib`). PipeWire, PulseAudio o JACK no hacen falta y no se usan |
+| Audio | ALSA (`alsa-lib`). Opcionalmente PipeWire (`pipewire-alsa`) o PulseAudio (`pulseaudio-alsa`) |
 | Tarjeta | Allen & Heath Xone:96 por USB (class compliant). Cualquier tarjeta ALSA con `hw:` sirve |
 | Espacio | Unos 2,8 GB por hora a 96 kHz en 32 bits (el programa te dice los minutos que caben) |
 | Tiempo real | Recomendado: paquete `realtime-privileges` y tu usuario en el grupo `realtime` |
@@ -48,19 +49,19 @@ sigue intacto.
 
 ### AppImage (recomendado)
 
-1. Descarga `Digityzer-v1.0.0-x86_64.AppImage` y su `.sha256` de la página de
+1. Descarga `Digityzer-v1.1.0-x86_64.AppImage` y su `.sha256` de la página de
    [releases](https://github.com/NoctaBremen/Digityzer/releases).
 2. Comprueba la descarga y dale permiso de ejecución:
 
    ```bash
-   sha256sum -c Digityzer-v1.0.0-x86_64.AppImage.sha256
-   chmod +x Digityzer-v1.0.0-x86_64.AppImage
+   sha256sum -c Digityzer-v1.1.0-x86_64.AppImage.sha256
+   chmod +x Digityzer-v1.1.0-x86_64.AppImage
    ```
 
 3. Ábrelo con doble clic o desde la terminal:
 
    ```bash
-   ./Digityzer-v1.0.0-x86_64.AppImage
+   ./Digityzer-v1.1.0-x86_64.AppImage
    ```
 
 El AppImage lleva GTK 4 dentro; ALSA (`libasound`) se usa siempre la del sistema, con tu
@@ -113,6 +114,30 @@ Mapa USB de la Xone:96 hacia el ordenador:
 | 9–10 | SEND 1 (no usar: puede llevar EQ) |
 | 11–12 | SEND 2 o master (no usar) |
 
+### Capa de audio
+
+La primera fila de la ventana, **Capa**, decide por dónde se graba:
+
+![Capa PipeWire con su aviso](img/capa-pipewire.png)
+
+| Capa | Qué graba | Bit-perfect | Necesita |
+|---|---|---|---|
+| **ALSA directo** (por defecto) | El `hw:` elegido, en exclusiva, con todos sus canales y su formato nativo | **Sí** | `alsa-lib` |
+| **PipeWire** | La fuente predeterminada de PipeWire, en estéreo | No | `pipewire` y `pipewire-alsa`, con PipeWire en marcha |
+| **PulseAudio** | La fuente predeterminada de PulseAudio (o de pipewire-pulse), en estéreo | No | `pulseaudio-alsa` (alsa-plugins) y el servidor en marcha |
+| **Predeterminado de ALSA** | Lo que diga tu configuración de ALSA para `default` | No | Un `default` configurado |
+
+- Para un master de archivo, usa **ALSA directo**: es la única capa en la que lo guardado es
+  idéntico a lo que entrega la tarjeta.
+- Las otras sirven cuando la tarjeta la tiene ocupada un servidor de sonido o para grabar otra
+  fuente. El servidor puede remuestrear, mezclar o aplicar volumen. Por eso Digityzer lo avisa en
+  ámbar («No bit-perfect») al elegirla, al armar y mientras graba, y la ficha JSON del master
+  lleva `"bit_perfect": false` y la capa usada.
+- En PipeWire y PulseAudio la fuente es la **predeterminada del servidor**: elígela antes con
+  `wpctl set-default`, `pavucontrol` o el panel de sonido. El par es siempre 1–2.
+- Si una capa no está instalada o el servidor no está en marcha, el dispositivo lo dice («no
+  disponible — hace falta …»). `cli probe` también lo lista.
+
 > **xwax y Digityzer no pueden usar USB 1 a la vez.** ALSA da el dispositivo `hw:` en exclusiva.
 > Cierra xwax antes de grabar por USB 1, o graba por USB 2 si la mesa lo permite. Si está
 > ocupado, Digityzer te lo dice (ver [Dispositivo ocupado](#dispositivo-ocupado)).
@@ -126,6 +151,7 @@ De arriba abajo:
 | Zona | Qué hay |
 |---|---|
 | Barra de título | **ⓘ Acerca de** (versión y créditos) y **✕ Cerrar** |
+| Capa | ALSA directo (bit-perfect), PipeWire, PulseAudio o Predeterminado de ALSA, con su aviso ([ver](#capa-de-audio)) |
 | Dispositivo | La tarjeta y su dispositivo `hw:`. El botón ↻ vuelve a buscar tarjetas. «Origen sintético» sirve para probar el programa sin la mesa |
 | Par | El par de canales a grabar, numerado como en la mesa (3–4 = plato A) |
 | Frecuencia | 44,1, 48 o 96 kHz, solo las que la tarjeta admite de forma nativa |
@@ -246,7 +272,7 @@ secundario de Nord, Tokyo Night y Ayu.
 Para ver todas las gráficas en todos los temas de una vez:
 
 ```bash
-./Digityzer-v1.0.0-x86_64.AppImage render-themes capturas/
+./Digityzer-v1.1.0-x86_64.AppImage render-themes capturas/
 ```
 
 Genera un PNG por tema en `capturas/` con una señal de prueba.
@@ -276,7 +302,9 @@ Si ya existen, se añade ` (2)`, ` (3)`…: **nunca se sobrescribe nada**.
 
 | Campo | Significado |
 |---|---|
-| `device`, `card_name` | Dispositivo ALSA y nombre de la tarjeta |
+| `audio_backend` | Capa de audio: `alsa`, `pipewire`, `pulse`, `default` (o `sintetico`) |
+| `bit_perfect` | `true` solo con ALSA directo |
+| `device`, `card_name` | Dispositivo ALSA (o el PCM del plugin) y nombre de la tarjeta o fuente |
 | `sample_rate`, `sample_format`, `container_bits` | Formato tal como llegó |
 | `lsb_zero_bits` | Bits bajos que han sido cero en todas las muestras (8 = 24 bits útiles en 32) |
 | `channels_opened`, `channel_pair` | Canales abiertos en la tarjeta y par grabado (desde 1) |
@@ -294,7 +322,7 @@ Si ya existen, se añade ` (2)`, ` (3)`…: **nunca se sobrescribe nada**.
 Para saber si un master sigue idéntico al día en que se grabó:
 
 ```bash
-./Digityzer-v1.0.0-x86_64.AppImage cli verify "Artista - Título - Cara A.wav"
+./Digityzer-v1.1.0-x86_64.AppImage cli verify "Artista - Título - Cara A.wav"
 ```
 
 Dice «correcto» o qué bloques (de 1 MiB) han cambiado.
@@ -316,7 +344,9 @@ Con el AppImage, antepón `cli`; si compilaste, usa `digityzer-cli` directamente
 ```
 digityzer-cli record [OPCIONES] --pair <PAR> <ARCHIVO>
 
-  -d, --device <DISPOSITIVO>  hw: de la tarjeta (ver probe), p. ej. hw:CARD=USB1,DEV=0
+  -b, --backend <CAPA>        alsa (por defecto, bit-perfect), pipewire, pulse o default
+  -d, --device <DISPOSITIVO>  hw: de la tarjeta (ver probe), p. ej. hw:CARD=USB1,DEV=0;
+                              solo con --backend alsa
   -p, --pair <PAR>            par de canales desde 1: 3-4 (plato A), 5-6 (plato B)
   -r, --rate <HZ>             frecuencia nativa [por defecto: 96000]
   -f, --format <FORMATO>      S32_LE, S24_3LE o S16_LE (por defecto, el mejor que admita)
@@ -328,8 +358,14 @@ digityzer-cli record [OPCIONES] --pair <PAR> <ARCHIVO>
 Ejemplo:
 
 ```bash
-./Digityzer-v1.0.0-x86_64.AppImage cli record --device hw:CARD=USB1,DEV=0 --pair 3-4 \
+./Digityzer-v1.1.0-x86_64.AppImage cli record --device hw:CARD=USB1,DEV=0 --pair 3-4 \
     --notes "Sello, catálogo, cara A" "Disco - Cara A.wav"
+```
+
+Por PipeWire (fuente predeterminada, no bit-perfect):
+
+```bash
+./Digityzer-v1.1.0-x86_64.AppImage cli record --backend pipewire --pair 1-2 "Prueba.wav"
 ```
 
 Ctrl-C para parar: lo capturado hasta ese momento se escribe entero antes de cerrar. Si el
@@ -344,6 +380,7 @@ del espectro y suavizado:
 theme = "dracula"
 spectrum_view = "curva"   # curva, barras o cascada
 smoothing = 6             # 3, 6 o 12 (fracción de octava)
+audio_backend = "alsa"    # alsa, pipewire, pulse o default
 ```
 
 Si el archivo falta o está mal, se usan esos valores. El nivel de registro se cambia con
@@ -355,6 +392,12 @@ Si el archivo falta o está mal, se usan esos valores. El nivel de registro se c
 
 «XONE 96 USB 1 está en uso por otro programa (¿xwax abierto?)». Otro programa tiene abierta la
 tarjeta en exclusiva. Cierra xwax (o lo que la use) y vuelve a armar, o graba por otro USB.
+
+### «La capa PipeWire/PulseAudio no está disponible»
+
+Falta el plugin de ALSA o el servidor no está en marcha. En Arch:
+`sudo pacman -S pipewire-alsa` (PipeWire) o `sudo pacman -S pulseaudio-alsa` (PulseAudio), y
+comprueba que el servidor corre (`wpctl status` o `pactl info`).
 
 ### Sin prioridad de tiempo real
 
@@ -406,5 +449,5 @@ Mira «Libre» antes de grabar: indica los minutos que caben al formato actual.
 
 ---
 
-Digityzer 1.0 · © 2026 David Gimenez · Licencia MIT ·
+Digityzer 1.1 · © 2026 David Gimenez · Licencia MIT ·
 [github.com/NoctaBremen/Digityzer](https://github.com/NoctaBremen/Digityzer)
